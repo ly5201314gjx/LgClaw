@@ -1,0 +1,25 @@
+package com.lgclaw.runtime
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import com.lgclaw.config.ConfigStore
+
+class AlwaysOnBootReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        val action = intent?.action.orEmpty()
+        if (
+            action != Intent.ACTION_BOOT_COMPLETED &&
+            action != Intent.ACTION_MY_PACKAGE_REPLACED
+        ) {
+            return
+        }
+        if (!ConfigStore(context.applicationContext).getAlwaysOnConfig().enabled) {
+            AlwaysOnHealthCheckWorker.cancel(context.applicationContext)
+            return
+        }
+        AlwaysOnHealthCheckWorker.ensureScheduled(context.applicationContext)
+        AlwaysOnModeController.startService(context.applicationContext)
+    }
+}
+

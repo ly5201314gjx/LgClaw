@@ -1,0 +1,27 @@
+# Android / Gradle
+.gradle/
+.gradle-user-home/
+.kotlin/
+build/
+app/build/
+app/release/
+docs/assets/promo
+
+
+# Local machine config
+local.properties
+signing.properties
+keystore.properties
+*.jks
+*.keystore
+
+# IDE
+.idea/
+*.iml
+
+# Temp / generated
+tmp/
+
+# OS files
+.DS_Store
+Thumbs.db
