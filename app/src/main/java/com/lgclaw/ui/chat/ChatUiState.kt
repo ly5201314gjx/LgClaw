@@ -145,13 +145,17 @@ enum class UiBubbleStyle(val key: String, val label: String) {
 
 enum class UiFontFamilyChoice(val key: String, val label: String) {
     System("system", "系统默认"),
-    Serif("serif", "衬线字体"),
-    Mono("mono", "等宽字体"),
-    Rounded("rounded", "圆润字体");
+    Sans("sans", "清爽无衬线"),
+    Serif("serif", "阅读衬线"),
+    Mono("mono", "代码等宽"),
+    Custom("custom", "自定义字体");
 
     companion object {
         fun fromKey(key: String): UiFontFamilyChoice =
-            values().firstOrNull { it.key == key } ?: System
+            values().firstOrNull { it.key == key } ?: when (key) {
+                "rounded" -> Sans
+                else -> System
+            }
     }
 }
 
@@ -230,9 +234,22 @@ data class ChatUiState(
     val settingsGatewayEnabled: Boolean = false,
     val settingsUseChinese: Boolean = false,
     val settingsDarkTheme: Boolean = false,
+    val themePreset: String = "obsidian_glass",
     val themeTextColorHex: String = "",
     val themeFontFamily: String = UiFontFamilyChoice.System.key,
     val themeBubbleStyle: String = UiBubbleStyle.Native.key,
+    val themeUserBubbleColorHex: String = "#BFD8FF",
+    val themeAssistantBubbleColorHex: String = "#F7FAFF",
+    val themeToolBubbleColorHex: String = "#DDF7EC",
+    val themeBubbleOpacity: Float = 0.78f,
+    val themeBubbleCornerRadius: Float = 18f,
+    val themeBubbleBorderAlpha: Float = 0.42f,
+    val themeBubbleHighlightAlpha: Float = 0.38f,
+    val themeBubbleShadowAlpha: Float = 0.18f,
+    val themeBubbleGlassStrength: Float = 0.62f,
+    val themeMessageFontSizeSp: Float = 14f,
+    val themeMessageLineHeightMultiplier: Float = 1.18f,
+    val themeCustomFontPath: String = "",
     val chatBackgroundPath: String = "",
     val chatBackgroundOpacity: Float = 0.18f,
     val chatBackgroundBlur: Float = 0f,

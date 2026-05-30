@@ -8,6 +8,8 @@ import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.provider.OpenableColumns
 import android.os.Build
 import android.os.BatteryManager
@@ -103,6 +105,7 @@ import com.lgclaw.tools.SessionsSendTool
 import com.lgclaw.tools.SpawnTool
 import com.lgclaw.tools.createToolRegistry
 import java.io.File
+import java.io.ByteArrayOutputStream
 import java.io.FileOutputStream
 import java.nio.charset.Charset
 import java.security.MessageDigest
@@ -183,6 +186,19 @@ class ChatViewModel(
             themeTextColorHex = initialUiPrefs.themeTextColorHex,
             themeFontFamily = initialUiPrefs.themeFontFamily,
             themeBubbleStyle = initialUiPrefs.themeBubbleStyle,
+            themePreset = initialUiPrefs.themePreset,
+            themeUserBubbleColorHex = initialUiPrefs.themeUserBubbleColorHex,
+            themeAssistantBubbleColorHex = initialUiPrefs.themeAssistantBubbleColorHex,
+            themeToolBubbleColorHex = initialUiPrefs.themeToolBubbleColorHex,
+            themeBubbleOpacity = initialUiPrefs.themeBubbleOpacity,
+            themeBubbleCornerRadius = initialUiPrefs.themeBubbleCornerRadius,
+            themeBubbleBorderAlpha = initialUiPrefs.themeBubbleBorderAlpha,
+            themeBubbleHighlightAlpha = initialUiPrefs.themeBubbleHighlightAlpha,
+            themeBubbleShadowAlpha = initialUiPrefs.themeBubbleShadowAlpha,
+            themeBubbleGlassStrength = initialUiPrefs.themeBubbleGlassStrength,
+            themeMessageFontSizeSp = initialUiPrefs.themeMessageFontSizeSp,
+            themeMessageLineHeightMultiplier = initialUiPrefs.themeMessageLineHeightMultiplier,
+            themeCustomFontPath = initialUiPrefs.themeCustomFontPath,
             chatBackgroundPath = initialUiPrefs.chatBackgroundPath,
             chatBackgroundOpacity = initialUiPrefs.chatBackgroundOpacity,
             chatBackgroundBlur = initialUiPrefs.chatBackgroundBlur,
@@ -395,6 +411,27 @@ class ChatViewModel(
         }
     }
 
+    fun attachImagesToInput(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val app = getApplication<Application>()
+                uris.take(8).map { uri ->
+                    val mime = app.contentResolver.getType(uri).orEmpty()
+                    if (!mime.startsWith("image/") && !guessMimeFromName(queryDisplayName(app, uri)).startsWith("image/")) {
+                        throw IllegalArgumentException("图片入口只支持上传图片")
+                    }
+                    saveInputAttachment(app, uri)
+                }
+            }.onSuccess { attachments ->
+                _uiState.update { state ->
+                    state.copy(pendingAttachments = (state.pendingAttachments + attachments).takeLast(8))
+                }
+                showSettingsInfo("图片已加入顶部缩略图栏，发送后会随消息交给多模态模型识别")
+            }.onFailure { showSettingsInfo("图片添加失败：${it.message ?: it.javaClass.simpleName}") }
+        }
+    }
+
     fun removePendingAttachment(id: String) {
         _uiState.update { state ->
             state.copy(pendingAttachments = state.pendingAttachments.filterNot { it.id == id })
@@ -412,15 +449,53 @@ class ChatViewModel(
             FileOutputStream(target).use { output -> input.copyTo(output) }
         } ?: throw IllegalArgumentException("无法读取所选文件")
         val kind = if (mime.startsWith("image/")) UiMediaKind.Image else UiMediaKind.Document
+        val finalFile = if (kind == UiMediaKind.Image) prepareVisionImage(target, mime) else target
+        val finalMime = if (kind == UiMediaKind.Image && finalFile.extension.equals("jpg", ignoreCase = true)) "image/jpeg" else mime
         return UiPendingAttachment(
             id = UUID.randomUUID().toString().take(8),
-            name = target.name,
-            mimeType = mime,
-            path = target.absolutePath,
-            sizeBytes = target.length(),
+            name = finalFile.name,
+            mimeType = finalMime,
+            path = finalFile.absolutePath,
+            sizeBytes = finalFile.length(),
             kind = kind,
-            textPreview = extractTextPreview(target, mime)
+            textPreview = extractTextPreview(finalFile, finalMime)
         )
+    }
+
+    private fun prepareVisionImage(file: File, mime: String): File {
+        if (file.length() <= MAX_VISION_ATTACHMENT_BYTES && mime.lowercase(Locale.US) in VISION_DIRECT_MIME_TYPES) {
+            return file
+        }
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, options)
+        if (options.outWidth <= 0 || options.outHeight <= 0) return file
+        var sample = 1
+        while ((options.outWidth / sample) > MAX_VISION_IMAGE_SIDE || (options.outHeight / sample) > MAX_VISION_IMAGE_SIDE) {
+            sample *= 2
+        }
+        val bitmap = BitmapFactory.decodeFile(
+            file.absolutePath,
+            BitmapFactory.Options().apply { inSampleSize = sample.coerceAtLeast(1) }
+        ) ?: return file
+        return try {
+            val dir = file.parentFile ?: return file
+            val outFile = File(dir, file.nameWithoutExtension + "_vision.jpg")
+            val output = ByteArrayOutputStream()
+            var quality = 88
+            do {
+                output.reset()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, output)
+                quality -= 8
+            } while (output.size() > MAX_VISION_ATTACHMENT_BYTES && quality >= 56)
+            if (output.size() <= MAX_VISION_ATTACHMENT_BYTES) {
+                FileOutputStream(outFile).use { it.write(output.toByteArray()) }
+                outFile
+            } else {
+                file
+            }
+        } finally {
+            bitmap.recycle()
+        }
     }
 
     private fun queryDisplayName(app: Application, uri: Uri): String {
@@ -649,11 +724,17 @@ class ChatViewModel(
 
     private fun buildUserTextWithAttachments(text: String, attachments: List<UiPendingAttachment>): String {
         if (attachments.isEmpty()) return text
-        val userText = text.trim().ifBlank { "请阅读并分析我上传的附件。" }
+        val hasImage = attachments.any { it.kind == UiMediaKind.Image }
+        val userText = text.trim().ifBlank {
+            if (hasImage) "请直接观察并分析我上传的图片，描述画面内容、关键信息和你能判断出的细节。" else "请阅读并分析我上传的附件。"
+        }
         return buildString {
             appendLine(userText)
             appendLine()
             appendLine("【用户已上传附件，必须读取并结合附件回答】")
+            if (hasImage) {
+                appendLine("【重要】本轮包含图片。若你能收到视觉输入，请直接基于图片像素回答；不要声称只能看到文件名、路径或大小。")
+            }
             attachments.forEachIndexed { index, attachment ->
                 appendLine("${index + 1}. ${attachment.marker}")
                 appendLine("   文件ID：${attachment.id}")
@@ -661,7 +742,7 @@ class ChatViewModel(
                 appendLine("   路径：${attachment.path}")
                 appendLine("   大小：${attachment.sizeBytes} bytes")
                 if (attachment.kind == UiMediaKind.Image) {
-                    appendLine("   说明：这是一张图片；如果当前模型支持视觉，系统会把图片数据随本轮消息一起发送。")
+                    appendLine("   说明：这是一张图片；系统会把可识别的图片数据随本轮消息一起发送给多模态模型。")
                 }
                 if (attachment.textPreview.isNotBlank()) {
                     appendLine("   内容摘录：")
@@ -758,7 +839,35 @@ class ChatViewModel(
         val model = configStore.getConfig().model.lowercase(Locale.US)
         val provider = configStore.getConfig().providerName.lowercase(Locale.US)
         val haystack = "$provider/$model"
-        return listOf("gpt-4o", "gpt-4.1", "gpt-5", "vision", "vl", "qwen-vl", "gemini", "claude-3", "claude-4", "llava", "yi-vision").any { haystack.contains(it) }
+        return listOf(
+            "gpt-4o",
+            "gpt-4.1",
+            "gpt-5",
+            "o1",
+            "o3",
+            "o4",
+            "vision",
+            "visual",
+            "multimodal",
+            "omni",
+            "vl",
+            "qwen-vl",
+            "qwen2-vl",
+            "qwen2.5-vl",
+            "qwen-omni",
+            "gemini",
+            "claude-3",
+            "claude-4",
+            "llava",
+            "yi-vision",
+            "glm-4v",
+            "glm-4.5v",
+            "doubao-vision",
+            "seed-vision",
+            "pixtral",
+            "mistral-medium",
+            "mistral-large"
+        ).any { haystack.contains(it) }
     }
     private fun localPolishText(source: String): String {
         return source.trim()
@@ -1743,6 +1852,178 @@ class ChatViewModel(
         showSettingsInfo("消息气泡样式已更新")
     }
 
+    fun applyThemePreset(preset: String) {
+        saveUiPreferences { current ->
+            val keepChatBackground = current.chatBackgroundPath
+            val keepDrawerBackground = current.drawerBackgroundPath
+            val base = when (preset) {
+                "native_clear" -> UiPreferencesConfig(
+                    themePreset = "native_clear",
+                    themeBubbleStyle = UiBubbleStyle.Native.key,
+                    themeFontFamily = UiFontFamilyChoice.System.key,
+                    themeTextColorHex = "",
+                    themeUserBubbleColorHex = "#D7E6FF",
+                    themeAssistantBubbleColorHex = "#FFFFFF",
+                    themeToolBubbleColorHex = "#E2F6EA",
+                    themeBubbleOpacity = 1f,
+                    themeBubbleCornerRadius = 16f,
+                    themeBubbleBorderAlpha = 0.12f,
+                    themeBubbleHighlightAlpha = 0.08f,
+                    themeBubbleShadowAlpha = 0.05f,
+                    themeBubbleGlassStrength = 0.12f,
+                    themeMessageFontSizeSp = 14f,
+                    themeMessageLineHeightMultiplier = 1.18f,
+                    chatBackgroundOpacity = current.chatBackgroundOpacity,
+                    chatBackgroundBlur = current.chatBackgroundBlur,
+                    chatBackgroundGlass = current.chatBackgroundGlass,
+                    drawerBackgroundOpacity = current.drawerBackgroundOpacity,
+                    drawerBackgroundBlur = current.drawerBackgroundBlur,
+                    drawerBackgroundGlass = current.drawerBackgroundGlass
+                )
+                "aurora_water" -> UiPreferencesConfig(
+                    themePreset = "aurora_water",
+                    themeBubbleStyle = UiBubbleStyle.Water.key,
+                    themeFontFamily = UiFontFamilyChoice.Sans.key,
+                    themeTextColorHex = "",
+                    themeUserBubbleColorHex = "#A9F0FF",
+                    themeAssistantBubbleColorHex = "#F6F2FF",
+                    themeToolBubbleColorHex = "#C9FFE8",
+                    themeBubbleOpacity = 0.66f,
+                    themeBubbleCornerRadius = 22f,
+                    themeBubbleBorderAlpha = 0.48f,
+                    themeBubbleHighlightAlpha = 0.62f,
+                    themeBubbleShadowAlpha = 0.22f,
+                    themeBubbleGlassStrength = 0.86f,
+                    themeMessageFontSizeSp = 14.2f,
+                    themeMessageLineHeightMultiplier = 1.2f,
+                    chatBackgroundOpacity = 0.22f,
+                    chatBackgroundBlur = current.chatBackgroundBlur,
+                    chatBackgroundGlass = 0.24f,
+                    drawerBackgroundOpacity = 0.26f,
+                    drawerBackgroundBlur = current.drawerBackgroundBlur,
+                    drawerBackgroundGlass = 0.28f
+                )
+                "paper_reading" -> UiPreferencesConfig(
+                    themePreset = "paper_reading",
+                    themeBubbleStyle = UiBubbleStyle.Native.key,
+                    themeFontFamily = UiFontFamilyChoice.Serif.key,
+                    themeTextColorHex = "#2A2622",
+                    themeUserBubbleColorHex = "#E9F0FF",
+                    themeAssistantBubbleColorHex = "#FFFDF7",
+                    themeToolBubbleColorHex = "#EEF7E9",
+                    themeBubbleOpacity = 0.96f,
+                    themeBubbleCornerRadius = 14f,
+                    themeBubbleBorderAlpha = 0.22f,
+                    themeBubbleHighlightAlpha = 0.08f,
+                    themeBubbleShadowAlpha = 0.08f,
+                    themeBubbleGlassStrength = 0.05f,
+                    themeMessageFontSizeSp = 15f,
+                    themeMessageLineHeightMultiplier = 1.32f,
+                    chatBackgroundOpacity = 0.14f,
+                    chatBackgroundBlur = current.chatBackgroundBlur,
+                    chatBackgroundGlass = 0.32f,
+                    drawerBackgroundOpacity = current.drawerBackgroundOpacity,
+                    drawerBackgroundBlur = current.drawerBackgroundBlur,
+                    drawerBackgroundGlass = current.drawerBackgroundGlass
+                )
+                "neon_night" -> UiPreferencesConfig(
+                    themePreset = "neon_night",
+                    themeBubbleStyle = UiBubbleStyle.Water.key,
+                    themeFontFamily = UiFontFamilyChoice.Sans.key,
+                    themeTextColorHex = "#F4F8FF",
+                    themeUserBubbleColorHex = "#235CFF",
+                    themeAssistantBubbleColorHex = "#1B1F31",
+                    themeToolBubbleColorHex = "#103D35",
+                    themeBubbleOpacity = 0.74f,
+                    themeBubbleCornerRadius = 20f,
+                    themeBubbleBorderAlpha = 0.56f,
+                    themeBubbleHighlightAlpha = 0.54f,
+                    themeBubbleShadowAlpha = 0.34f,
+                    themeBubbleGlassStrength = 0.78f,
+                    themeMessageFontSizeSp = 14f,
+                    themeMessageLineHeightMultiplier = 1.2f,
+                    chatBackgroundOpacity = 0.2f,
+                    chatBackgroundBlur = current.chatBackgroundBlur,
+                    chatBackgroundGlass = 0.42f,
+                    drawerBackgroundOpacity = 0.24f,
+                    drawerBackgroundBlur = current.drawerBackgroundBlur,
+                    drawerBackgroundGlass = 0.44f
+                )
+                else -> UiPreferencesConfig(
+                    themePreset = "obsidian_glass",
+                    themeBubbleStyle = UiBubbleStyle.Frosted.key,
+                    themeFontFamily = UiFontFamilyChoice.Sans.key,
+                    themeTextColorHex = "",
+                    themeUserBubbleColorHex = "#BFD8FF",
+                    themeAssistantBubbleColorHex = "#F7FAFF",
+                    themeToolBubbleColorHex = "#DDF7EC",
+                    themeBubbleOpacity = 0.78f,
+                    themeBubbleCornerRadius = 18f,
+                    themeBubbleBorderAlpha = 0.42f,
+                    themeBubbleHighlightAlpha = 0.38f,
+                    themeBubbleShadowAlpha = 0.18f,
+                    themeBubbleGlassStrength = 0.62f,
+                    themeMessageFontSizeSp = 14f,
+                    themeMessageLineHeightMultiplier = 1.18f,
+                    chatBackgroundOpacity = 0.18f,
+                    chatBackgroundBlur = current.chatBackgroundBlur,
+                    chatBackgroundGlass = 0.18f,
+                    drawerBackgroundOpacity = 0.22f,
+                    drawerBackgroundBlur = current.drawerBackgroundBlur,
+                    drawerBackgroundGlass = 0.22f
+                )
+            }
+            base.copy(
+                useChinese = current.useChinese,
+                darkTheme = current.darkTheme,
+                chatBackgroundPath = keepChatBackground,
+                drawerBackgroundPath = keepDrawerBackground,
+                themeCustomFontPath = current.themeCustomFontPath
+            )
+        }
+        showSettingsInfo("主题预设已应用")
+    }
+
+    fun setThemeBubbleTuning(
+        opacity: Float,
+        cornerRadius: Float,
+        borderAlpha: Float,
+        highlightAlpha: Float,
+        shadowAlpha: Float,
+        glassStrength: Float
+    ) {
+        saveUiPreferences {
+            it.copy(
+                themeBubbleOpacity = opacity.coerceIn(0.28f, 1f),
+                themeBubbleCornerRadius = cornerRadius.coerceIn(8f, 28f),
+                themeBubbleBorderAlpha = borderAlpha.coerceIn(0f, 1f),
+                themeBubbleHighlightAlpha = highlightAlpha.coerceIn(0f, 1f),
+                themeBubbleShadowAlpha = shadowAlpha.coerceIn(0f, 0.55f),
+                themeBubbleGlassStrength = glassStrength.coerceIn(0f, 1f)
+            )
+        }
+    }
+
+    fun setThemeBubbleColors(user: String, assistant: String, tool: String) {
+        saveUiPreferences {
+            it.copy(
+                themeUserBubbleColorHex = normalizeThemeColor(user).ifBlank { it.themeUserBubbleColorHex },
+                themeAssistantBubbleColorHex = normalizeThemeColor(assistant).ifBlank { it.themeAssistantBubbleColorHex },
+                themeToolBubbleColorHex = normalizeThemeColor(tool).ifBlank { it.themeToolBubbleColorHex }
+            )
+        }
+        showSettingsInfo("气泡颜色已更新")
+    }
+
+    fun setThemeTypographyTuning(fontSizeSp: Float, lineHeightMultiplier: Float) {
+        saveUiPreferences {
+            it.copy(
+                themeMessageFontSizeSp = fontSizeSp.coerceIn(12f, 20f),
+                themeMessageLineHeightMultiplier = lineHeightMultiplier.coerceIn(1f, 1.7f)
+            )
+        }
+    }
+
     fun resetThemeDefaults() {
         val current = configStore.getUiPreferencesConfig()
         val defaults = UiPreferencesConfig()
@@ -1751,6 +2032,19 @@ class ChatViewModel(
                 themeTextColorHex = defaults.themeTextColorHex,
                 themeFontFamily = defaults.themeFontFamily,
                 themeBubbleStyle = defaults.themeBubbleStyle,
+                themePreset = defaults.themePreset,
+                themeUserBubbleColorHex = defaults.themeUserBubbleColorHex,
+                themeAssistantBubbleColorHex = defaults.themeAssistantBubbleColorHex,
+                themeToolBubbleColorHex = defaults.themeToolBubbleColorHex,
+                themeBubbleOpacity = defaults.themeBubbleOpacity,
+                themeBubbleCornerRadius = defaults.themeBubbleCornerRadius,
+                themeBubbleBorderAlpha = defaults.themeBubbleBorderAlpha,
+                themeBubbleHighlightAlpha = defaults.themeBubbleHighlightAlpha,
+                themeBubbleShadowAlpha = defaults.themeBubbleShadowAlpha,
+                themeBubbleGlassStrength = defaults.themeBubbleGlassStrength,
+                themeMessageFontSizeSp = defaults.themeMessageFontSizeSp,
+                themeMessageLineHeightMultiplier = defaults.themeMessageLineHeightMultiplier,
+                themeCustomFontPath = defaults.themeCustomFontPath,
                 chatBackgroundPath = defaults.chatBackgroundPath,
                 chatBackgroundOpacity = defaults.chatBackgroundOpacity,
                 chatBackgroundBlur = defaults.chatBackgroundBlur,
@@ -1792,6 +2086,32 @@ class ChatViewModel(
         saveThemeImage(uri = uri, target = "drawer")
     }
 
+    fun setCustomFontFromUri(uri: Uri?) {
+        if (uri == null) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val app = getApplication<Application>()
+                val name = resolveDisplayName(app, uri).lowercase(Locale.US)
+                val mime = app.contentResolver.getType(uri).orEmpty().lowercase(Locale.US)
+                val allowed = name.endsWith(".ttf") || name.endsWith(".otf") ||
+                    mime.contains("font") || mime.contains("opentype") || mime.contains("truetype")
+                if (!allowed) throw IllegalArgumentException("请选择 ttf 或 otf 字体文件")
+                val dir = File(AppStoragePaths.storageRoot(app), "themes").apply { mkdirs() }
+                val ext = if (name.endsWith(".otf")) "otf" else "ttf"
+                val file = File(dir, "custom_font_${System.currentTimeMillis()}.$ext")
+                app.contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(file).use { output -> input.copyTo(output) }
+                } ?: throw IllegalArgumentException("无法读取字体文件")
+                file.absolutePath
+            }.onSuccess { path ->
+                saveUiPreferences { it.copy(themeCustomFontPath = path, themeFontFamily = UiFontFamilyChoice.Custom.key) }
+                showSettingsInfo("自定义字体已启用")
+            }.onFailure { t ->
+                showSettingsInfo("字体设置失败：${t.message ?: t.javaClass.simpleName}")
+            }
+        }
+    }
+
     fun clearChatBackground() {
         saveUiPreferences { it.copy(chatBackgroundPath = "") }
         showSettingsInfo("聊天背景已清除")
@@ -1816,6 +2136,19 @@ class ChatViewModel(
                 themeTextColorHex = config.themeTextColorHex,
                 themeFontFamily = config.themeFontFamily,
                 themeBubbleStyle = config.themeBubbleStyle,
+                themePreset = config.themePreset,
+                themeUserBubbleColorHex = config.themeUserBubbleColorHex,
+                themeAssistantBubbleColorHex = config.themeAssistantBubbleColorHex,
+                themeToolBubbleColorHex = config.themeToolBubbleColorHex,
+                themeBubbleOpacity = config.themeBubbleOpacity,
+                themeBubbleCornerRadius = config.themeBubbleCornerRadius,
+                themeBubbleBorderAlpha = config.themeBubbleBorderAlpha,
+                themeBubbleHighlightAlpha = config.themeBubbleHighlightAlpha,
+                themeBubbleShadowAlpha = config.themeBubbleShadowAlpha,
+                themeBubbleGlassStrength = config.themeBubbleGlassStrength,
+                themeMessageFontSizeSp = config.themeMessageFontSizeSp,
+                themeMessageLineHeightMultiplier = config.themeMessageLineHeightMultiplier,
+                themeCustomFontPath = config.themeCustomFontPath,
                 chatBackgroundPath = config.chatBackgroundPath,
                 chatBackgroundOpacity = config.chatBackgroundOpacity,
                 chatBackgroundBlur = config.chatBackgroundBlur,
@@ -1864,6 +2197,16 @@ class ChatViewModel(
     private fun normalizeThemeColor(value: String): String {
         val raw = value.trim().removePrefix("#")
         return if (raw.matches(Regex("[A-Fa-f0-9]{6}"))) "#${raw.uppercase(Locale.US)}" else ""
+    }
+
+    private fun resolveDisplayName(context: Context, uri: Uri): String {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (index >= 0 && cursor.moveToFirst()) {
+                return cursor.getString(index).orEmpty()
+            }
+        }
+        return uri.lastPathSegment.orEmpty()
     }
 
     fun onOnboardingUserDisplayNameChanged(value: String) =
@@ -5644,9 +5987,22 @@ class ChatViewModel(
                 settingsGatewayEnabled = channelsCfg.enabled,
                 settingsUseChinese = uiPrefsCfg.useChinese,
                 settingsDarkTheme = uiPrefsCfg.darkTheme,
+                themePreset = uiPrefsCfg.themePreset,
                 themeTextColorHex = uiPrefsCfg.themeTextColorHex,
                 themeFontFamily = uiPrefsCfg.themeFontFamily,
                 themeBubbleStyle = uiPrefsCfg.themeBubbleStyle,
+                themeUserBubbleColorHex = uiPrefsCfg.themeUserBubbleColorHex,
+                themeAssistantBubbleColorHex = uiPrefsCfg.themeAssistantBubbleColorHex,
+                themeToolBubbleColorHex = uiPrefsCfg.themeToolBubbleColorHex,
+                themeBubbleOpacity = uiPrefsCfg.themeBubbleOpacity,
+                themeBubbleCornerRadius = uiPrefsCfg.themeBubbleCornerRadius,
+                themeBubbleBorderAlpha = uiPrefsCfg.themeBubbleBorderAlpha,
+                themeBubbleHighlightAlpha = uiPrefsCfg.themeBubbleHighlightAlpha,
+                themeBubbleShadowAlpha = uiPrefsCfg.themeBubbleShadowAlpha,
+                themeBubbleGlassStrength = uiPrefsCfg.themeBubbleGlassStrength,
+                themeMessageFontSizeSp = uiPrefsCfg.themeMessageFontSizeSp,
+                themeMessageLineHeightMultiplier = uiPrefsCfg.themeMessageLineHeightMultiplier,
+                themeCustomFontPath = uiPrefsCfg.themeCustomFontPath,
                 chatBackgroundPath = uiPrefsCfg.chatBackgroundPath,
                 chatBackgroundOpacity = uiPrefsCfg.chatBackgroundOpacity,
                 chatBackgroundBlur = uiPrefsCfg.chatBackgroundBlur,
@@ -6065,6 +6421,9 @@ class ChatViewModel(
     companion object {
         private const val TAG = "ChatViewModel"
         private const val MAX_MEDIA_ATTACHMENTS_PER_MESSAGE = 4
+        private const val MAX_VISION_ATTACHMENT_BYTES = 10L * 1024L * 1024L
+        private const val MAX_VISION_IMAGE_SIDE = 2048
+        private val VISION_DIRECT_MIME_TYPES = setOf("image/png", "image/jpeg", "image/jpg", "image/webp")
         private const val FEISHU_DISCOVERY_STARTUP_RETRIES = 8
         private const val FEISHU_DISCOVERY_STARTUP_RETRY_DELAY_MS = 350L
         private const val WECOM_DISCOVERY_STARTUP_RETRIES = 8

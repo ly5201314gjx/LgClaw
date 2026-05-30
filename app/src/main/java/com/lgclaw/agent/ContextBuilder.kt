@@ -6,10 +6,13 @@ import com.lgclaw.providers.ToolCall
 import com.lgclaw.storage.entities.MessageEntity
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 
 class ContextBuilder {
     private val json = Json { ignoreUnknownKeys = true }
@@ -158,13 +161,52 @@ class ContextBuilder {
             val path = fields["path"].orEmpty()
             val mime = fields["mime"].orEmpty().ifBlank { "image/png" }
             val file = java.io.File(path)
-            if (file.exists() && file.length() <= 12L * 1024L * 1024L) {
-                val b64 = android.util.Base64.encodeToString(file.readBytes(), android.util.Base64.NO_WRAP)
-                parts += ChatContentPart(type = "image_url", imageUrl = "data:$mime;base64,$b64", mediaType = mime)
+            val imagePayload = imagePayloadForModel(file, mime)
+            if (imagePayload != null) {
+                parts += ChatContentPart(type = "image_url", imageUrl = imagePayload.dataUrl, mediaType = imagePayload.mime)
             }
         }
         return parts
     }
+
+    private fun imagePayloadForModel(file: java.io.File, mime: String): ImagePayload? {
+        if (!file.exists() || !file.isFile) return null
+        val normalizedMime = mime.lowercase(Locale.US).ifBlank { "image/jpeg" }
+        if (file.length() <= MAX_DIRECT_IMAGE_BYTES && normalizedMime in DIRECT_IMAGE_MIME_TYPES) {
+            val b64 = android.util.Base64.encodeToString(file.readBytes(), android.util.Base64.NO_WRAP)
+            return ImagePayload("data:$normalizedMime;base64,$b64", normalizedMime)
+        }
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, options)
+        if (options.outWidth <= 0 || options.outHeight <= 0) return null
+        val maxSide = MAX_VISION_IMAGE_SIDE
+        var sample = 1
+        while ((options.outWidth / sample) > maxSide || (options.outHeight / sample) > maxSide) {
+            sample *= 2
+        }
+        val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sample.coerceAtLeast(1) }
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath, decodeOptions) ?: return null
+        return try {
+            val output = ByteArrayOutputStream()
+            var quality = 88
+            do {
+                output.reset()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, output)
+                quality -= 8
+            } while (output.size() > MAX_DIRECT_IMAGE_BYTES && quality >= 56)
+            if (output.size() > MAX_DIRECT_IMAGE_BYTES) return null
+            val b64 = android.util.Base64.encodeToString(output.toByteArray(), android.util.Base64.NO_WRAP)
+            ImagePayload("data:image/jpeg;base64,$b64", "image/jpeg")
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private data class ImagePayload(
+        val dataUrl: String,
+        val mime: String
+    )
+
     private fun shouldSkipInContext(entity: MessageEntity): Boolean {
         if (entity.role != "assistant") return false
         val content = entity.content.trim()
@@ -197,6 +239,12 @@ class ContextBuilder {
         val content: String,
         val isError: Boolean
     )
+
+    companion object {
+        private const val MAX_DIRECT_IMAGE_BYTES = 10L * 1024L * 1024L
+        private const val MAX_VISION_IMAGE_SIDE = 2048
+        private val DIRECT_IMAGE_MIME_TYPES = setOf("image/png", "image/jpeg", "image/jpg", "image/webp")
+    }
 }
 
 

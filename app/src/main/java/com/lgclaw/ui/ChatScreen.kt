@@ -14,6 +14,7 @@ import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
 import android.text.method.LinkMovementMethod
+import android.graphics.Typeface
 import android.view.WindowManager
 import android.widget.Toast
 import android.widget.ImageView
@@ -153,11 +154,17 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.onSizeChanged
@@ -208,6 +215,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.math.max
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -289,12 +297,20 @@ fun ChatScreen(vm: ChatViewModel) {
     ) { uris ->
         if (uris.isNotEmpty()) vm.attachFilesToInput(uris)
     }
+    val imagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) vm.attachImagesToInput(uris)
+    }
     val chatBackgroundPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri -> vm.setChatBackgroundFromUri(uri) }
     val drawerBackgroundPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri -> vm.setDrawerBackgroundFromUri(uri) }
+    val customFontPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri -> vm.setCustomFontFromUri(uri) }
     val displayedAssistantText = remember { mutableStateMapOf<Long, String>() }
     val seenMessageIds = remember { mutableStateMapOf<Long, Boolean>() }
     var initializedMessages by rememberSaveable { mutableStateOf(false) }
@@ -3109,41 +3125,61 @@ fun ChatScreen(vm: ChatViewModel) {
                             )
                             val messageExpanded = isTool && expandedToolMessages[message.id] == true
                             val themeTextColor = parseThemeColorOrNull(state.themeTextColorHex)
+                            val customTypeface = rememberThemeTypeface(state.themeFontFamily, state.themeCustomFontPath)
                             val themeFontFamily = themeFontFamilyFor(state.themeFontFamily)
+                            val messageFontSize = state.themeMessageFontSizeSp.coerceIn(12f, 20f).sp
+                            val messageLineHeightMultiplier = state.themeMessageLineHeightMultiplier.coerceIn(1f, 1.7f)
+                            val messageLineHeight = (state.themeMessageFontSizeSp.coerceIn(12f, 20f) * messageLineHeightMultiplier).sp
                             val bubbleStyle = UiBubbleStyle.fromKey(state.themeBubbleStyle)
-                            val bubbleBorder = themedBubbleBorder(bubbleStyle)
                             val bubbleColors = when {
-                                isUser -> ChatBubbleColors(
-                                    container = themedBubbleContainer(MaterialTheme.colorScheme.primaryContainer, bubbleStyle, state.chatBackgroundGlass),
-                                    content = themeTextColor ?: MaterialTheme.colorScheme.onPrimaryContainer,
-                                    header = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f),
-                                    time = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
-                                )
+                                isUser -> {
+                                    val container = themedBubbleContainer(parseThemeColorOrNull(state.themeUserBubbleColorHex) ?: MaterialTheme.colorScheme.primaryContainer, bubbleStyle, state)
+                                    val content = themeTextColor ?: readableTextColor(container, isDarkTheme)
+                                    ChatBubbleColors(
+                                        container = container,
+                                        content = content,
+                                        header = content.copy(alpha = 0.88f),
+                                        time = content.copy(alpha = 0.72f)
+                                    )
+                                }
 
-                                isTool -> ChatBubbleColors(
-                                    container = themedBubbleContainer(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.92f), bubbleStyle, state.chatBackgroundGlass),
-                                    content = themeTextColor ?: MaterialTheme.colorScheme.onSecondaryContainer,
-                                    header = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.88f),
-                                    time = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f)
-                                )
+                                isTool -> {
+                                    val container = themedBubbleContainer(parseThemeColorOrNull(state.themeToolBubbleColorHex) ?: MaterialTheme.colorScheme.secondaryContainer, bubbleStyle, state)
+                                    val content = themeTextColor ?: readableTextColor(container, isDarkTheme)
+                                    ChatBubbleColors(
+                                        container = container,
+                                        content = content,
+                                        header = content.copy(alpha = 0.88f),
+                                        time = content.copy(alpha = 0.72f)
+                                    )
+                                }
 
-                                isSystem -> ChatBubbleColors(
-                                    container = themedBubbleContainer(MaterialTheme.colorScheme.tertiaryContainer, bubbleStyle, state.chatBackgroundGlass),
-                                    content = themeTextColor ?: MaterialTheme.colorScheme.onTertiaryContainer,
-                                    header = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.88f),
-                                    time = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.72f)
-                                )
+                                isSystem -> {
+                                    val container = themedBubbleContainer(MaterialTheme.colorScheme.tertiaryContainer, bubbleStyle, state)
+                                    val content = themeTextColor ?: readableTextColor(container, isDarkTheme)
+                                    ChatBubbleColors(
+                                        container = container,
+                                        content = content,
+                                        header = content.copy(alpha = 0.88f),
+                                        time = content.copy(alpha = 0.72f)
+                                    )
+                                }
 
-                                else -> ChatBubbleColors(
-                                    container = themedBubbleContainer(if (isDarkTheme) {
-                                        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.52f)
+                                else -> {
+                                    val assistantBase = parseThemeColorOrNull(state.themeAssistantBubbleColorHex) ?: if (isDarkTheme) {
+                                        MaterialTheme.colorScheme.secondaryContainer
                                     } else {
                                         MaterialTheme.colorScheme.surface
-                                    }, bubbleStyle, state.chatBackgroundGlass),
-                                    content = themeTextColor ?: MaterialTheme.colorScheme.onSurface,
-                                    header = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    time = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f)
-                                )
+                                    }
+                                    val container = themedBubbleContainer(assistantBase, bubbleStyle, state)
+                                    val content = themeTextColor ?: readableTextColor(container, isDarkTheme)
+                                    ChatBubbleColors(
+                                        container = container,
+                                        content = content,
+                                        header = content.copy(alpha = 0.74f),
+                                        time = content.copy(alpha = 0.64f)
+                                    )
+                                }
                             }
                             val visibleContent = if (message.role == "assistant") {
                                 displayedAssistantText[message.id] ?: message.content
@@ -3171,11 +3207,10 @@ fun ChatScreen(vm: ChatViewModel) {
                                     modifier = Modifier.fillMaxWidth(),
                                     contentAlignment = Alignment.CenterEnd
                                 ) {
-                                    Surface(
-                                        color = bubbleColors.container,
-                                        contentColor = bubbleColors.content,
-                                        shape = RoundedCornerShape(16.dp),
-                                        border = bubbleBorder,
+                                    ThemedMessageBubble(
+                                        colors = bubbleColors,
+                                        style = bubbleStyle,
+                                        state = state,
                                         modifier = Modifier.width(340.dp).then(messageActionModifier)
                                     ) {
                                         CompositionLocalProvider(LocalChatBubbleColors provides bubbleColors) {
@@ -3190,12 +3225,14 @@ fun ChatScreen(vm: ChatViewModel) {
                                                 )
                                                 MarkdownText(
                                                     markdown = displayContent,
-                                                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, fontFamily = themeFontFamily),
+                                                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = messageFontSize, lineHeight = messageLineHeight, fontFamily = themeFontFamily),
                                                     inlineCodeBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
                                                     quoteBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.56f),
                                                     codeBlockBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f),
                                                     fillMaxWidth = false,
-                                                    contentColor = bubbleColors.content
+                                                    contentColor = bubbleColors.content,
+                                                    lineHeightMultiplier = messageLineHeightMultiplier,
+                                                    typeface = customTypeface
                                                 )
                                                 if (message.attachments.isNotEmpty()) {
                                                     MediaAttachmentList(
@@ -3216,11 +3253,10 @@ fun ChatScreen(vm: ChatViewModel) {
                                     modifier = Modifier.fillMaxWidth(),
                                     contentAlignment = Alignment.CenterStart
                                 ) {
-                                    Surface(
-                                        color = bubbleColors.container,
-                                        contentColor = bubbleColors.content,
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = bubbleBorder,
+                                    ThemedMessageBubble(
+                                        colors = bubbleColors,
+                                        style = bubbleStyle,
+                                        state = state,
                                         modifier = Modifier.width(340.dp).then(messageActionModifier)
                                     ) {
                                         CompositionLocalProvider(LocalChatBubbleColors provides bubbleColors) {
@@ -3245,8 +3281,8 @@ fun ChatScreen(vm: ChatViewModel) {
                                                         Text(
                                                             text = message.content,
                                                             style = MaterialTheme.typography.bodyMedium.copy(
-                                                                fontSize = 14.sp,
-                                                                lineHeight = 14.sp,
+                                                                fontSize = messageFontSize,
+                                                                lineHeight = messageLineHeight,
                                                                 fontFamily = themeFontFamily
                                                             ),
                                                             maxLines = 1,
@@ -3271,21 +3307,25 @@ fun ChatScreen(vm: ChatViewModel) {
                                                     if (messageExpanded) {
                                                         MarkdownText(
                                                             markdown = displayContent,
-                                                            textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, fontFamily = themeFontFamily),
+                                                            textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = messageFontSize, lineHeight = messageLineHeight, fontFamily = themeFontFamily),
                                                             inlineCodeBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
                                                             quoteBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.56f),
                                                             codeBlockBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f),
-                                                            contentColor = bubbleColors.content
+                                                            contentColor = bubbleColors.content,
+                                                            lineHeightMultiplier = messageLineHeightMultiplier,
+                                                            typeface = customTypeface
                                                         )
                                                     }
                                                 } else {
                                                     MarkdownText(
                                                         markdown = displayContent,
-                                                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, fontFamily = themeFontFamily),
+                                                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = messageFontSize, lineHeight = messageLineHeight, fontFamily = themeFontFamily),
                                                         inlineCodeBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
                                                         quoteBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.56f),
                                                         codeBlockBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f),
-                                                        contentColor = bubbleColors.content
+                                                        contentColor = bubbleColors.content,
+                                                        lineHeightMultiplier = messageLineHeightMultiplier,
+                                                        typeface = customTypeface
                                                     )
                                                 }
                                                 val showAttachments = message.attachments.isNotEmpty() &&
@@ -3309,11 +3349,10 @@ fun ChatScreen(vm: ChatViewModel) {
                                     modifier = Modifier.fillMaxWidth(),
                                     contentAlignment = Alignment.CenterStart
                                 ) {
-                                    Surface(
-                                        color = bubbleColors.container,
-                                        contentColor = bubbleColors.content,
-                                        shape = RoundedCornerShape(14.dp),
-                                        border = bubbleBorder,
+                                    ThemedMessageBubble(
+                                        colors = bubbleColors,
+                                        style = bubbleStyle,
+                                        state = state,
                                         modifier = Modifier.width(340.dp).then(messageActionModifier)
                                     ) {
                                         CompositionLocalProvider(LocalChatBubbleColors provides bubbleColors) {
@@ -3331,11 +3370,13 @@ fun ChatScreen(vm: ChatViewModel) {
                                                 )
                                                 MarkdownText(
                                                     markdown = displayContent,
-                                                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, fontFamily = themeFontFamily),
+                                                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = messageFontSize, lineHeight = messageLineHeight, fontFamily = themeFontFamily),
                                                     inlineCodeBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
                                                     quoteBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.56f),
                                                     codeBlockBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f),
-                                                    contentColor = bubbleColors.content
+                                                    contentColor = bubbleColors.content,
+                                                    lineHeightMultiplier = messageLineHeightMultiplier,
+                                                    typeface = customTypeface
                                                 )
                                                 if (pendingPlan != null && isPendingPlanMessage) {
                                                     PendingPlanInlineActions(
@@ -3417,6 +3458,7 @@ fun ChatScreen(vm: ChatViewModel) {
                             onExecutePendingPlan = vm::executePendingPlan,
                             onAddToPendingPlan = vm::addToPendingPlan,
                             onClearPendingPlan = vm::clearPendingPlan,
+                            onPickImages = { imagePicker.launch(arrayOf("image/*")) },
                             onPickAttachments = { attachmentPicker.launch(arrayOf("image/*", "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/*", "application/*")) },
                             onRemoveAttachment = vm::removePendingAttachment
                         )
@@ -3432,9 +3474,14 @@ fun ChatScreen(vm: ChatViewModel) {
 
                 MainSurface.Theme -> ThemePanel(
                     state = state,
+                    onPresetApply = vm::applyThemePreset,
                     onTextColorChange = vm::setThemeTextColorHex,
                     onFontFamilyChange = vm::setThemeFontFamily,
                     onBubbleStyleChange = vm::setThemeBubbleStyle,
+                    onBubbleTuning = vm::setThemeBubbleTuning,
+                    onBubbleColorsChange = vm::setThemeBubbleColors,
+                    onTypographyTuning = vm::setThemeTypographyTuning,
+                    onPickCustomFont = { customFontPicker.launch("*/*") },
                     onPickChatBackground = { chatBackgroundPicker.launch("image/*") },
                     onClearChatBackground = vm::clearChatBackground,
                     onChatBackgroundTuning = vm::setChatBackgroundTuning,
@@ -3802,16 +3849,26 @@ private fun ChatBackgroundLayer(state: ChatUiState) {
     )
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background.copy(alpha = state.chatBackgroundGlass.coerceIn(0f, 1f))
+        color = adaptiveBackgroundScrim(
+            base = MaterialTheme.colorScheme.background,
+            imageOpacity = state.chatBackgroundOpacity,
+            glass = state.chatBackgroundGlass,
+            bubbleStyle = UiBubbleStyle.fromKey(state.themeBubbleStyle)
+        )
     ) {}
 }
 
 @Composable
 private fun ThemePanel(
     state: ChatUiState,
+    onPresetApply: (String) -> Unit,
     onTextColorChange: (String) -> Unit,
     onFontFamilyChange: (String) -> Unit,
     onBubbleStyleChange: (String) -> Unit,
+    onBubbleTuning: (Float, Float, Float, Float, Float, Float) -> Unit,
+    onBubbleColorsChange: (String, String, String) -> Unit,
+    onTypographyTuning: (Float, Float) -> Unit,
+    onPickCustomFont: () -> Unit,
     onPickChatBackground: () -> Unit,
     onClearChatBackground: () -> Unit,
     onChatBackgroundTuning: (Float, Float, Float) -> Unit,
@@ -3819,8 +3876,11 @@ private fun ThemePanel(
     onClearDrawerBackground: () -> Unit,
     onDrawerBackgroundTuning: (Float, Float, Float) -> Unit,
     onResetThemeDefaults: () -> Unit
-) {
+    ) {
     val scrollState = rememberScrollState()
+    var userColorDraft by remember(state.themeUserBubbleColorHex) { mutableStateOf(state.themeUserBubbleColorHex) }
+    var assistantColorDraft by remember(state.themeAssistantBubbleColorHex) { mutableStateOf(state.themeAssistantBubbleColorHex) }
+    var toolColorDraft by remember(state.themeToolBubbleColorHex) { mutableStateOf(state.themeToolBubbleColorHex) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -3828,25 +3888,82 @@ private fun ThemePanel(
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        SettingsSectionCard(title = "一键恢复", subtitle = "恢复默认文字、气泡、聊天背景和侧边栏背景") {
-            OutlinedButton(onClick = onResetThemeDefaults, modifier = Modifier.fillMaxWidth()) {
-                Text("恢复全部主题默认")
+        ThemeLivePreview(state = state)
+
+        SettingsSectionCard(title = "主题预设", subtitle = "一键切换完整视觉方案，背景图片会保留") {
+            ThemePresetGrid(selected = state.themePreset, onPresetApply = onPresetApply)
+        }
+
+        SettingsSectionCard(title = "消息气泡", subtitle = "毛玻璃和水玻璃会实时影响聊天消息") {
+            ThemeChoiceRow(
+                title = "气泡质感",
+                items = UiBubbleStyle.values().map { it.key to it.label },
+                selected = state.themeBubbleStyle,
+                onSelect = onBubbleStyleChange
+            )
+            ThemeSlider("整体透明度", state.themeBubbleOpacity, 0.28f, 1f) {
+                onBubbleTuning(it, state.themeBubbleCornerRadius, state.themeBubbleBorderAlpha, state.themeBubbleHighlightAlpha, state.themeBubbleShadowAlpha, state.themeBubbleGlassStrength)
+            }
+            ThemeSlider("圆角尺寸", state.themeBubbleCornerRadius, 8f, 28f) {
+                onBubbleTuning(state.themeBubbleOpacity, it, state.themeBubbleBorderAlpha, state.themeBubbleHighlightAlpha, state.themeBubbleShadowAlpha, state.themeBubbleGlassStrength)
+            }
+            ThemeSlider("边框强度", state.themeBubbleBorderAlpha, 0f, 1f) {
+                onBubbleTuning(state.themeBubbleOpacity, state.themeBubbleCornerRadius, it, state.themeBubbleHighlightAlpha, state.themeBubbleShadowAlpha, state.themeBubbleGlassStrength)
+            }
+            ThemeSlider("高光折射", state.themeBubbleHighlightAlpha, 0f, 1f) {
+                onBubbleTuning(state.themeBubbleOpacity, state.themeBubbleCornerRadius, state.themeBubbleBorderAlpha, it, state.themeBubbleShadowAlpha, state.themeBubbleGlassStrength)
+            }
+            ThemeSlider("阴影厚度", state.themeBubbleShadowAlpha, 0f, 0.55f) {
+                onBubbleTuning(state.themeBubbleOpacity, state.themeBubbleCornerRadius, state.themeBubbleBorderAlpha, state.themeBubbleHighlightAlpha, it, state.themeBubbleGlassStrength)
+            }
+            ThemeSlider("玻璃强度", state.themeBubbleGlassStrength, 0f, 1f) {
+                onBubbleTuning(state.themeBubbleOpacity, state.themeBubbleCornerRadius, state.themeBubbleBorderAlpha, state.themeBubbleHighlightAlpha, state.themeBubbleShadowAlpha, it)
+            }
+            Text("气泡颜色", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            ThemeColorField("我的气泡", userColorDraft) { userColorDraft = it }
+            ThemeColorField("AI 气泡", assistantColorDraft) { assistantColorDraft = it }
+            ThemeColorField("工具气泡", toolColorDraft) { toolColorDraft = it }
+            Button(
+                onClick = { onBubbleColorsChange(userColorDraft, assistantColorDraft, toolColorDraft) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("应用气泡颜色")
             }
         }
 
-        SettingsSectionCard(title = "文字与气泡", subtitle = "实时影响聊天消息显示") {
+        SettingsSectionCard(title = "文字排版", subtitle = "控制聊天消息的字体、字号、行距和文字颜色") {
             ThemeChoiceRow(
                 title = "字体类型",
                 items = UiFontFamilyChoice.values().map { it.key to it.label },
                 selected = state.themeFontFamily,
                 onSelect = onFontFamilyChange
             )
-            ThemeChoiceRow(
-                title = "消息气泡",
-                items = UiBubbleStyle.values().map { it.key to it.label },
-                selected = state.themeBubbleStyle,
-                onSelect = onBubbleStyleChange
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onPickCustomFont, modifier = Modifier.weight(1f)) {
+                    Text("选择字体文件")
+                }
+                OutlinedButton(
+                    onClick = { onFontFamilyChange(UiFontFamilyChoice.System.key) },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("恢复系统字体")
+                }
+            }
+            if (state.themeCustomFontPath.isNotBlank()) {
+                Text(
+                    text = "当前自定义字体：${File(state.themeCustomFontPath).name}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            ThemeSlider("消息字号", state.themeMessageFontSizeSp, 12f, 20f) {
+                onTypographyTuning(it, state.themeMessageLineHeightMultiplier)
+            }
+            ThemeSlider("消息行距", state.themeMessageLineHeightMultiplier, 1f, 1.7f) {
+                onTypographyTuning(state.themeMessageFontSizeSp, it)
+            }
             var colorDraft by remember(state.themeTextColorHex) { mutableStateOf(state.themeTextColorHex) }
             OutlinedTextField(
                 value = colorDraft,
@@ -3901,6 +4018,12 @@ private fun ThemePanel(
                 onDrawerBackgroundTuning(state.drawerBackgroundOpacity, state.drawerBackgroundBlur, it)
             }
         }
+
+        SettingsSectionCard(title = "恢复默认", subtitle = "恢复文字、气泡、聊天背景和侧边栏背景") {
+            OutlinedButton(onClick = onResetThemeDefaults, modifier = Modifier.fillMaxWidth()) {
+                Text("恢复全部主题默认")
+            }
+        }
     }
 }
 
@@ -3939,6 +4062,222 @@ private fun ThemeChoiceRow(
 }
 
 @Composable
+private fun ThemePresetGrid(selected: String, onPresetApply: (String) -> Unit) {
+    val presets = listOf(
+        ThemePresetUi("obsidian_glass", "曜石玻璃", "清透、稳重、默认推荐", "#BFD8FF", "#F7FAFF"),
+        ThemePresetUi("aurora_water", "极光水纹", "水玻璃、高光、流动感", "#A9F0FF", "#F6F2FF"),
+        ThemePresetUi("paper_reading", "纸感阅读", "温和、长文更舒服", "#E9F0FF", "#FFFDF7"),
+        ThemePresetUi("neon_night", "霓虹夜行", "深色、高对比、发光边缘", "#235CFF", "#1B1F31"),
+        ThemePresetUi("native_clear", "原生清爽", "干净轻快、接近系统默认", "#D7E6FF", "#FFFFFF")
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        presets.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                row.forEach { preset ->
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 86.dp)
+                            .clickable { onPresetApply(preset.key) },
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (selected == preset.key) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(
+                            1.dp,
+                            if (selected == preset.key) MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
+                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.56f)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp)
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                ThemeColorDot(preset.userColor)
+                                ThemeColorDot(preset.assistantColor)
+                            }
+                            Text(preset.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                preset.subtitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+                if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeColorDot(hex: String) {
+    Surface(
+        modifier = Modifier.size(18.dp),
+        shape = CircleShape,
+        color = parseThemeColorOrNull(hex) ?: MaterialTheme.colorScheme.primary,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.16f))
+    ) {}
+}
+
+@Composable
+private fun ThemeColorField(label: String, value: String, onValueChange: (String) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ThemeColorDot(value)
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text(label) },
+            placeholder = { Text("#BFD8FF") },
+            singleLine = true,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun ThemeLivePreview(state: ChatUiState) {
+    val isDarkTheme = isSystemInDarkTheme()
+    val bubbleStyle = UiBubbleStyle.fromKey(state.themeBubbleStyle)
+    val fontFamily = themeFontFamilyFor(state.themeFontFamily)
+    val typeface = rememberThemeTypeface(state.themeFontFamily, state.themeCustomFontPath)
+    val fontSize = state.themeMessageFontSizeSp.coerceIn(12f, 20f).sp
+    val lineMultiplier = state.themeMessageLineHeightMultiplier.coerceIn(1f, 1.7f)
+    val previewBackdrop = when (state.themePreset) {
+        "aurora_water" -> listOf(Color(0xFF5DE7FF), Color(0xFFFF8CD9), Color(0xFF7B61FF))
+        "neon_night" -> listOf(Color(0xFF07111F), Color(0xFF2E1F78), Color(0xFF00D7FF))
+        "paper_reading" -> listOf(Color(0xFFFFFBF2), Color(0xFFECE1CF), Color(0xFFF8F1E7))
+        "native_clear" -> listOf(Color(0xFFF7FAFF), Color(0xFFEAF2FF), Color(0xFFFFFFFF))
+        else -> listOf(Color(0xFF111827), Color(0xFF315A78), Color(0xFFE8F4FF))
+    }
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.68f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.linearGradient(
+                        previewBackdrop.mapIndexed { index, color ->
+                            color.copy(alpha = if (index == 0) 0.34f else 0.24f)
+                        }
+                    )
+                )
+                .padding(12.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("实时预览", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                PreviewBubble(
+                    text = "我想把今天的想法整理成一段更有力量的表达。",
+                    alignEnd = true,
+                    colors = previewBubbleColors(
+                        parseThemeColorOrNull(state.themeUserBubbleColorHex) ?: MaterialTheme.colorScheme.primaryContainer,
+                        bubbleStyle,
+                        state,
+                        isDarkTheme
+                    ),
+                    style = bubbleStyle,
+                    state = state,
+                    fontFamily = fontFamily,
+                    fontSize = fontSize,
+                    lineHeightMultiplier = lineMultiplier,
+                    typeface = typeface
+                )
+                PreviewBubble(
+                    text = "可以。我会保留你的语气，把结构收紧，让句子更像一个真实的人在认真说话。",
+                    alignEnd = false,
+                    colors = previewBubbleColors(
+                        parseThemeColorOrNull(state.themeAssistantBubbleColorHex) ?: MaterialTheme.colorScheme.surface,
+                        bubbleStyle,
+                        state,
+                        isDarkTheme
+                    ),
+                    style = bubbleStyle,
+                    state = state,
+                    fontFamily = fontFamily,
+                    fontSize = fontSize,
+                    lineHeightMultiplier = lineMultiplier,
+                    typeface = typeface
+                )
+                PreviewBubble(
+                    text = "工具结果：已识别 1 张图片和 1 个 PDF，小条显示，不占输入框。",
+                    alignEnd = false,
+                    colors = previewBubbleColors(
+                        parseThemeColorOrNull(state.themeToolBubbleColorHex) ?: MaterialTheme.colorScheme.secondaryContainer,
+                        bubbleStyle,
+                        state,
+                        isDarkTheme
+                    ),
+                    style = bubbleStyle,
+                    state = state,
+                    fontFamily = fontFamily,
+                    fontSize = (state.themeMessageFontSizeSp.coerceIn(12f, 20f) - 0.5f).sp,
+                    lineHeightMultiplier = lineMultiplier,
+                    typeface = typeface
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreviewBubble(
+    text: String,
+    alignEnd: Boolean,
+    colors: ChatBubbleColors,
+    style: UiBubbleStyle,
+    state: ChatUiState,
+    fontFamily: FontFamily,
+    fontSize: TextUnit,
+    lineHeightMultiplier: Float,
+    typeface: Typeface?
+) {
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = if (alignEnd) Alignment.CenterEnd else Alignment.CenterStart
+    ) {
+        ThemedMessageBubble(
+            colors = colors,
+            style = style,
+            state = state,
+            modifier = Modifier.widthIn(max = 292.dp)
+        ) {
+            MarkdownText(
+                markdown = text,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = fontSize,
+                    lineHeight = (fontSize.value * lineHeightMultiplier).sp,
+                    fontFamily = fontFamily
+                ),
+                inlineCodeBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                quoteBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.56f),
+                codeBlockBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f),
+                contentColor = colors.content,
+                lineHeightMultiplier = lineHeightMultiplier,
+                typeface = typeface
+            )
+        }
+    }
+}
+
+private data class ThemePresetUi(
+    val key: String,
+    val title: String,
+    val subtitle: String,
+    val userColor: String,
+    val assistantColor: String
+)
+
+@Composable
 private fun ThemeImagePreview(path: String, emptyText: String) {
     val file = path.trim().takeIf { it.isNotBlank() }?.let { File(it) }
     Surface(
@@ -3965,6 +4304,135 @@ private fun ThemeImagePreview(path: String, emptyText: String) {
 }
 
 @Composable
+private fun ThemedMessageBubble(
+    colors: ChatBubbleColors,
+    style: UiBubbleStyle,
+    state: ChatUiState,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val radius = state.themeBubbleCornerRadius.coerceIn(8f, 28f).dp
+    val shape = RoundedCornerShape(radius)
+    val shadowAlpha = when (style) {
+        UiBubbleStyle.Native -> state.themeBubbleShadowAlpha.coerceIn(0f, 0.18f)
+        UiBubbleStyle.Frosted -> state.themeBubbleShadowAlpha.coerceIn(0f, 0.35f)
+        UiBubbleStyle.Water -> state.themeBubbleShadowAlpha.coerceIn(0f, 0.55f)
+    }
+    val elevation = (shadowAlpha * 22f).dp
+    Box(
+        modifier = modifier
+            .shadow(elevation = elevation, shape = shape, clip = false)
+            .clip(shape)
+            .background(themedBubbleBrush(colors.container, style, state))
+            .drawBehind { drawBubbleGlass(style, state, colors.container) }
+            .border(themedBubbleBorder(state, style), shape)
+    ) {
+        Box(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun themedBubbleBrush(base: Color, style: UiBubbleStyle, state: ChatUiState): Brush {
+    return when (style) {
+        UiBubbleStyle.Native -> Brush.linearGradient(listOf(base, base))
+        UiBubbleStyle.Frosted -> Brush.linearGradient(
+            listOf(
+                base.copy(alpha = (base.alpha + 0.10f).coerceAtMost(0.96f)),
+                base.copy(alpha = (base.alpha * 0.92f).coerceIn(0.28f, 0.92f))
+            )
+        )
+        UiBubbleStyle.Water -> Brush.linearGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.24f * state.themeBubbleGlassStrength.coerceIn(0f, 1f)),
+                base.copy(alpha = (base.alpha + 0.08f).coerceAtMost(0.86f)),
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.08f * state.themeBubbleGlassStrength.coerceIn(0f, 1f)),
+                base.copy(alpha = (base.alpha * 0.68f).coerceIn(0.22f, 0.78f))
+            ),
+            start = Offset.Zero,
+            end = Offset(260f, 220f)
+        )
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBubbleGlass(
+    style: UiBubbleStyle,
+    state: ChatUiState,
+    base: Color
+) {
+    val highlight = state.themeBubbleHighlightAlpha.coerceIn(0f, 1f)
+    if (style == UiBubbleStyle.Native || highlight <= 0.01f) return
+    val strokeWidth = 1.2.dp.toPx()
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            listOf(
+                Color.White.copy(alpha = 0.32f * highlight),
+                Color.White.copy(alpha = 0.04f * highlight)
+            )
+        ),
+        cornerRadius = CornerRadius(state.themeBubbleCornerRadius.dp.toPx(), state.themeBubbleCornerRadius.dp.toPx()),
+        style = Stroke(width = strokeWidth)
+    )
+    drawRoundRect(
+        color = Color.White.copy(alpha = if (style == UiBubbleStyle.Water) 0.24f * highlight else 0.16f * highlight),
+        topLeft = Offset(size.width * 0.08f, size.height * 0.08f),
+        size = Size(size.width * 0.54f, max(3f, size.height * 0.08f)),
+        cornerRadius = CornerRadius(999f, 999f)
+    )
+    if (style == UiBubbleStyle.Water) {
+        drawCircle(
+            color = Color.White.copy(alpha = 0.10f * highlight),
+            radius = size.minDimension * 0.42f,
+            center = Offset(size.width * 0.88f, size.height * 0.12f)
+        )
+        drawCircle(
+            color = Color.Cyan.copy(alpha = 0.06f * highlight),
+            radius = size.minDimension * 0.34f,
+            center = Offset(size.width * 0.08f, size.height * 0.92f)
+        )
+        drawRoundRect(
+            brush = Brush.radialGradient(
+                listOf(
+                        Color.White.copy(alpha = 0.22f * highlight),
+                        base.copy(alpha = 0f)
+                    ),
+                    center = Offset(size.width * 0.16f, size.height * 0.18f),
+                    radius = size.width * 0.75f,
+                    tileMode = TileMode.Clamp
+                ),
+            cornerRadius = CornerRadius(state.themeBubbleCornerRadius.dp.toPx(), state.themeBubbleCornerRadius.dp.toPx())
+        )
+        drawLine(
+            color = Color.White.copy(alpha = 0.22f * highlight),
+            start = Offset(size.width * 0.12f, size.height - 1.5.dp.toPx()),
+            end = Offset(size.width * 0.88f, size.height - 1.5.dp.toPx()),
+            strokeWidth = 1.dp.toPx()
+        )
+    }
+}
+
+private fun themedBubbleBorder(state: ChatUiState, style: UiBubbleStyle): BorderStroke {
+    val alpha = when (style) {
+        UiBubbleStyle.Native -> state.themeBubbleBorderAlpha.coerceIn(0f, 0.3f)
+        UiBubbleStyle.Frosted -> state.themeBubbleBorderAlpha.coerceIn(0f, 0.75f)
+        UiBubbleStyle.Water -> state.themeBubbleBorderAlpha.coerceIn(0f, 1f)
+    }
+    return BorderStroke(1.dp, Color.White.copy(alpha = alpha))
+}
+
+private fun previewBubbleColors(base: Color, style: UiBubbleStyle, state: ChatUiState, isDarkTheme: Boolean): ChatBubbleColors {
+    val container = themedBubbleContainer(base, style, state)
+    val content = readableTextColor(container, isDarkTheme)
+    return ChatBubbleColors(
+        container = container,
+        content = content,
+        header = content.copy(alpha = 0.78f),
+        time = content.copy(alpha = 0.62f)
+    )
+}
+
+@Composable
 private fun ThemeSlider(label: String, value: Float, min: Float, max: Float, onChange: (Float) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -3985,30 +4453,68 @@ private fun parseThemeColorOrNull(raw: String): Color? {
     return runCatching { Color(android.graphics.Color.parseColor("#$clean")) }.getOrNull()
 }
 
+@Composable
+private fun rememberThemeTypeface(key: String, customPath: String): Typeface? {
+    val context = LocalContext.current
+    return remember(key, customPath) {
+        when (UiFontFamilyChoice.fromKey(key)) {
+            UiFontFamilyChoice.Sans -> Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            UiFontFamilyChoice.Serif -> Typeface.create(Typeface.SERIF, Typeface.NORMAL)
+            UiFontFamilyChoice.Mono -> Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
+            UiFontFamilyChoice.Custom -> customPath.trim()
+                .takeIf { it.isNotBlank() && File(it).exists() }
+                ?.let { runCatching { Typeface.createFromFile(it) }.getOrNull() }
+                ?: runCatching {
+                    androidx.core.content.res.ResourcesCompat.getFont(context, R.font.plus_jakarta_sans_regular)
+                }.getOrNull()
+            UiFontFamilyChoice.System -> null
+        }
+    }
+}
+
 private fun themeFontFamilyFor(key: String): FontFamily {
     return when (UiFontFamilyChoice.fromKey(key)) {
+        UiFontFamilyChoice.Sans -> FontFamily.SansSerif
         UiFontFamilyChoice.Serif -> FontFamily.Serif
         UiFontFamilyChoice.Mono -> FontFamily.Monospace
-        UiFontFamilyChoice.Rounded -> FontFamily.Cursive
+        UiFontFamilyChoice.Custom -> FontFamily.Default
         UiFontFamilyChoice.System -> FontFamily.Default
     }
 }
 
-private fun themedBubbleContainer(base: Color, style: UiBubbleStyle, glass: Float): Color {
+private fun themedBubbleContainer(base: Color, style: UiBubbleStyle, state: ChatUiState): Color {
+    val opacity = state.themeBubbleOpacity.coerceIn(0.28f, 1f)
+    val glass = state.themeBubbleGlassStrength.coerceIn(0f, 1f)
     return when (style) {
-        UiBubbleStyle.Native -> base
-        UiBubbleStyle.Frosted -> base.copy(alpha = (0.58f + glass * 0.22f).coerceIn(0.45f, 0.86f))
-        UiBubbleStyle.Water -> base.copy(alpha = (0.42f + glass * 0.28f).coerceIn(0.36f, 0.74f))
+        UiBubbleStyle.Native -> base.copy(alpha = opacity.coerceIn(0.72f, 1f))
+        UiBubbleStyle.Frosted -> base.copy(alpha = (opacity * (0.72f + glass * 0.18f)).coerceIn(0.38f, 0.92f))
+        UiBubbleStyle.Water -> base.copy(alpha = (opacity * (0.55f + glass * 0.16f)).coerceIn(0.30f, 0.82f))
     }
 }
 
-@Composable
-private fun themedBubbleBorder(style: UiBubbleStyle): BorderStroke? {
-    return when (style) {
-        UiBubbleStyle.Native -> null
-        UiBubbleStyle.Frosted -> BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f))
-        UiBubbleStyle.Water -> BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.26f))
+private fun readableTextColor(background: Color, isDarkTheme: Boolean): Color {
+    val luminance = background.luminanceEstimate()
+    return if (background.alpha < 0.5f) {
+        if (isDarkTheme) Color.White.copy(alpha = 0.94f) else Color(0xFF111827)
+    } else if (luminance > 0.58f) {
+        Color(0xFF111827)
+    } else {
+        Color.White.copy(alpha = 0.94f)
     }
+}
+
+private fun adaptiveBackgroundScrim(base: Color, imageOpacity: Float, glass: Float, bubbleStyle: UiBubbleStyle): Color {
+    val styleBoost = when (bubbleStyle) {
+        UiBubbleStyle.Native -> 0.02f
+        UiBubbleStyle.Frosted -> 0.08f
+        UiBubbleStyle.Water -> 0.12f
+    }
+    val alpha = (glass * 0.62f + imageOpacity * 0.22f + styleBoost).coerceIn(0.08f, 0.72f)
+    return base.copy(alpha = alpha)
+}
+
+private fun Color.luminanceEstimate(): Float {
+    return (0.299f * red + 0.587f * green + 0.114f * blue).coerceIn(0f, 1f)
 }
 private enum class MainSurface {
     Chat,

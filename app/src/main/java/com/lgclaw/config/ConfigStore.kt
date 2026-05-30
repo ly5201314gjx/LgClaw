@@ -15,9 +15,22 @@ class ConfigStore(context: Context) {
         return UiPreferencesConfig(
             useChinese = prefs.getBoolean(KEY_UI_USE_CHINESE, false),
             darkTheme = prefs.getBoolean(KEY_UI_DARK_THEME, false),
+            themePreset = prefs.getString(KEY_UI_THEME_PRESET, "obsidian_glass").orEmpty().ifBlank { "obsidian_glass" },
             themeTextColorHex = prefs.getString(KEY_UI_THEME_TEXT_COLOR_HEX, "").orEmpty(),
             themeFontFamily = prefs.getString(KEY_UI_THEME_FONT_FAMILY, "system").orEmpty().ifBlank { "system" },
             themeBubbleStyle = prefs.getString(KEY_UI_THEME_BUBBLE_STYLE, "native").orEmpty().ifBlank { "native" },
+            themeUserBubbleColorHex = prefs.getString(KEY_UI_THEME_USER_BUBBLE_COLOR_HEX, "#BFD8FF").orEmpty().ifBlank { "#BFD8FF" },
+            themeAssistantBubbleColorHex = prefs.getString(KEY_UI_THEME_ASSISTANT_BUBBLE_COLOR_HEX, "#F7FAFF").orEmpty().ifBlank { "#F7FAFF" },
+            themeToolBubbleColorHex = prefs.getString(KEY_UI_THEME_TOOL_BUBBLE_COLOR_HEX, "#DDF7EC").orEmpty().ifBlank { "#DDF7EC" },
+            themeBubbleOpacity = prefs.getFloat(KEY_UI_THEME_BUBBLE_OPACITY, 0.78f).coerceIn(0.28f, 1f),
+            themeBubbleCornerRadius = prefs.getFloat(KEY_UI_THEME_BUBBLE_CORNER_RADIUS, 18f).coerceIn(8f, 28f),
+            themeBubbleBorderAlpha = prefs.getFloat(KEY_UI_THEME_BUBBLE_BORDER_ALPHA, 0.42f).coerceIn(0f, 1f),
+            themeBubbleHighlightAlpha = prefs.getFloat(KEY_UI_THEME_BUBBLE_HIGHLIGHT_ALPHA, 0.38f).coerceIn(0f, 1f),
+            themeBubbleShadowAlpha = prefs.getFloat(KEY_UI_THEME_BUBBLE_SHADOW_ALPHA, 0.18f).coerceIn(0f, 0.55f),
+            themeBubbleGlassStrength = prefs.getFloat(KEY_UI_THEME_BUBBLE_GLASS_STRENGTH, 0.62f).coerceIn(0f, 1f),
+            themeMessageFontSizeSp = prefs.getFloat(KEY_UI_THEME_MESSAGE_FONT_SIZE_SP, 14f).coerceIn(12f, 20f),
+            themeMessageLineHeightMultiplier = prefs.getFloat(KEY_UI_THEME_MESSAGE_LINE_HEIGHT_MULTIPLIER, 1.18f).coerceIn(1f, 1.7f),
+            themeCustomFontPath = prefs.getString(KEY_UI_THEME_CUSTOM_FONT_PATH, "").orEmpty(),
             chatBackgroundPath = prefs.getString(KEY_UI_CHAT_BACKGROUND_PATH, "").orEmpty(),
             chatBackgroundOpacity = prefs.getFloat(KEY_UI_CHAT_BACKGROUND_OPACITY, 0.18f).coerceIn(0f, 1f),
             chatBackgroundBlur = prefs.getFloat(KEY_UI_CHAT_BACKGROUND_BLUR, 0f).coerceIn(0f, 40f),
@@ -33,9 +46,22 @@ class ConfigStore(context: Context) {
         prefs.edit()
             .putBoolean(KEY_UI_USE_CHINESE, config.useChinese)
             .putBoolean(KEY_UI_DARK_THEME, config.darkTheme)
+            .putString(KEY_UI_THEME_PRESET, config.themePreset.trim().ifBlank { "obsidian_glass" })
             .putString(KEY_UI_THEME_TEXT_COLOR_HEX, config.themeTextColorHex.trim())
             .putString(KEY_UI_THEME_FONT_FAMILY, config.themeFontFamily.trim().ifBlank { "system" })
             .putString(KEY_UI_THEME_BUBBLE_STYLE, config.themeBubbleStyle.trim().ifBlank { "native" })
+            .putString(KEY_UI_THEME_USER_BUBBLE_COLOR_HEX, config.themeUserBubbleColorHex.trim())
+            .putString(KEY_UI_THEME_ASSISTANT_BUBBLE_COLOR_HEX, config.themeAssistantBubbleColorHex.trim())
+            .putString(KEY_UI_THEME_TOOL_BUBBLE_COLOR_HEX, config.themeToolBubbleColorHex.trim())
+            .putFloat(KEY_UI_THEME_BUBBLE_OPACITY, config.themeBubbleOpacity.coerceIn(0.28f, 1f))
+            .putFloat(KEY_UI_THEME_BUBBLE_CORNER_RADIUS, config.themeBubbleCornerRadius.coerceIn(8f, 28f))
+            .putFloat(KEY_UI_THEME_BUBBLE_BORDER_ALPHA, config.themeBubbleBorderAlpha.coerceIn(0f, 1f))
+            .putFloat(KEY_UI_THEME_BUBBLE_HIGHLIGHT_ALPHA, config.themeBubbleHighlightAlpha.coerceIn(0f, 1f))
+            .putFloat(KEY_UI_THEME_BUBBLE_SHADOW_ALPHA, config.themeBubbleShadowAlpha.coerceIn(0f, 0.55f))
+            .putFloat(KEY_UI_THEME_BUBBLE_GLASS_STRENGTH, config.themeBubbleGlassStrength.coerceIn(0f, 1f))
+            .putFloat(KEY_UI_THEME_MESSAGE_FONT_SIZE_SP, config.themeMessageFontSizeSp.coerceIn(12f, 20f))
+            .putFloat(KEY_UI_THEME_MESSAGE_LINE_HEIGHT_MULTIPLIER, config.themeMessageLineHeightMultiplier.coerceIn(1f, 1.7f))
+            .putString(KEY_UI_THEME_CUSTOM_FONT_PATH, config.themeCustomFontPath.trim())
             .putString(KEY_UI_CHAT_BACKGROUND_PATH, config.chatBackgroundPath.trim())
             .putFloat(KEY_UI_CHAT_BACKGROUND_OPACITY, config.chatBackgroundOpacity.coerceIn(0f, 1f))
             .putFloat(KEY_UI_CHAT_BACKGROUND_BLUR, config.chatBackgroundBlur.coerceIn(0f, 40f))
@@ -695,9 +721,22 @@ class ConfigStore(context: Context) {
         private const val KEY_LAST_ACTIVE_SESSION_ID = "last_active_session_id"
         private const val KEY_UI_USE_CHINESE = "ui_use_chinese"
         private const val KEY_UI_DARK_THEME = "ui_dark_theme"
+        private const val KEY_UI_THEME_PRESET = "ui_theme_preset"
         private const val KEY_UI_THEME_TEXT_COLOR_HEX = "ui_theme_text_color_hex"
         private const val KEY_UI_THEME_FONT_FAMILY = "ui_theme_font_family"
         private const val KEY_UI_THEME_BUBBLE_STYLE = "ui_theme_bubble_style"
+        private const val KEY_UI_THEME_USER_BUBBLE_COLOR_HEX = "ui_theme_user_bubble_color_hex"
+        private const val KEY_UI_THEME_ASSISTANT_BUBBLE_COLOR_HEX = "ui_theme_assistant_bubble_color_hex"
+        private const val KEY_UI_THEME_TOOL_BUBBLE_COLOR_HEX = "ui_theme_tool_bubble_color_hex"
+        private const val KEY_UI_THEME_BUBBLE_OPACITY = "ui_theme_bubble_opacity"
+        private const val KEY_UI_THEME_BUBBLE_CORNER_RADIUS = "ui_theme_bubble_corner_radius"
+        private const val KEY_UI_THEME_BUBBLE_BORDER_ALPHA = "ui_theme_bubble_border_alpha"
+        private const val KEY_UI_THEME_BUBBLE_HIGHLIGHT_ALPHA = "ui_theme_bubble_highlight_alpha"
+        private const val KEY_UI_THEME_BUBBLE_SHADOW_ALPHA = "ui_theme_bubble_shadow_alpha"
+        private const val KEY_UI_THEME_BUBBLE_GLASS_STRENGTH = "ui_theme_bubble_glass_strength"
+        private const val KEY_UI_THEME_MESSAGE_FONT_SIZE_SP = "ui_theme_message_font_size_sp"
+        private const val KEY_UI_THEME_MESSAGE_LINE_HEIGHT_MULTIPLIER = "ui_theme_message_line_height_multiplier"
+        private const val KEY_UI_THEME_CUSTOM_FONT_PATH = "ui_theme_custom_font_path"
         private const val KEY_UI_CHAT_BACKGROUND_PATH = "ui_chat_background_path"
         private const val KEY_UI_CHAT_BACKGROUND_OPACITY = "ui_chat_background_opacity"
         private const val KEY_UI_CHAT_BACKGROUND_BLUR = "ui_chat_background_blur"

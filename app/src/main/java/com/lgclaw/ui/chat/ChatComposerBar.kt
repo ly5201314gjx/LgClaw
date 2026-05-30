@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -58,6 +59,7 @@ internal fun ChatComposerBar(
     onExecutePendingPlan: () -> Unit,
     onAddToPendingPlan: (String) -> Unit,
     onClearPendingPlan: () -> Unit,
+    onPickImages: () -> Unit,
     onPickAttachments: () -> Unit,
     onRemoveAttachment: (String) -> Unit
 ) {
@@ -112,8 +114,16 @@ internal fun ChatComposerBar(
                     IconButton(onClick = onPickAttachments, modifier = Modifier.size(34.dp)) {
                         Icon(
                             imageVector = Icons.Rounded.AttachFile,
-                            contentDescription = "上传文件",
+                            contentDescription = "上传附件",
                             tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.78f),
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+                    IconButton(onClick = onPickImages, modifier = Modifier.size(34.dp)) {
+                        Icon(
+                            imageVector = Icons.Rounded.Image,
+                            contentDescription = "上传图片",
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.88f),
                             modifier = Modifier.size(19.dp)
                         )
                     }
@@ -125,7 +135,7 @@ internal fun ChatComposerBar(
                     ) {
                         if (state.input.isBlank()) {
                             Text(
-                                text = "输入消息，或点左侧上传图片/文档",
+                                text = "输入消息，或点左侧图片/附件按钮",
                                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
                                 color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f),
                                 maxLines = 2,

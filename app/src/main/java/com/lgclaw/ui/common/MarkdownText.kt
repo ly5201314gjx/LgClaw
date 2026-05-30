@@ -1,6 +1,7 @@
 package com.lgclaw.ui
 
 import android.text.method.LinkMovementMethod
+import android.graphics.Typeface
 import android.widget.TextView
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -29,7 +30,9 @@ internal fun MarkdownText(
     quoteBackground: Color,
     codeBlockBackground: Color,
     fillMaxWidth: Boolean = true,
-    contentColor: Color = MaterialTheme.colorScheme.onSurface
+    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    lineHeightMultiplier: Float = 1.02f,
+    typeface: Typeface? = null
 ) {
     val context = LocalContext.current
     val plainTextColor = contentColor
@@ -39,12 +42,34 @@ internal fun MarkdownText(
     val isPlainText = remember(plainTextCandidate) { isLikelyPlainText(plainTextCandidate) }
     if (isPlainText) {
         SelectionContainer {
-            Text(
-                text = plainTextCandidate,
-                modifier = if (fillMaxWidth) Modifier.fillMaxWidth() else Modifier,
-                style = textStyle,
-                color = plainTextColor
-            )
+            if (typeface != null) {
+                AndroidView(
+                    modifier = if (fillMaxWidth) Modifier.fillMaxWidth() else Modifier,
+                    factory = { ctx ->
+                        TextView(ctx).apply {
+                            setTextIsSelectable(true)
+                            includeFontPadding = false
+                            setPadding(0, 0, 0, 0)
+                        }
+                    },
+                    update = { textView ->
+                        textView.text = plainTextCandidate
+                        textView.setTextColor(plainTextColor.toArgb())
+                        if (textStyle.fontSize != TextUnit.Unspecified) {
+                            textView.textSize = textStyle.fontSize.value
+                        }
+                        textView.setLineSpacing(0f, lineHeightMultiplier.coerceIn(1f, 1.7f))
+                        textView.typeface = typeface
+                    }
+                )
+            } else {
+                Text(
+                    text = plainTextCandidate,
+                    modifier = if (fillMaxWidth) Modifier.fillMaxWidth() else Modifier,
+                    style = textStyle,
+                    color = plainTextColor
+                )
+            }
         }
         return
     }
@@ -70,7 +95,7 @@ internal fun MarkdownText(
                 isClickable = true
                 includeFontPadding = false
                 setPadding(0, 0, 0, 0)
-                setLineSpacing(0f, 1.02f)
+                setLineSpacing(0f, lineHeightMultiplier.coerceIn(1f, 1.7f))
             }
         },
         update = { textView ->
@@ -78,6 +103,8 @@ internal fun MarkdownText(
             if (textStyle.fontSize != TextUnit.Unspecified) {
                 textView.textSize = textStyle.fontSize.value
             }
+            textView.setLineSpacing(0f, lineHeightMultiplier.coerceIn(1f, 1.7f))
+            textView.typeface = typeface
             if (textView.tag != normalizedMarkdown) {
                 textView.tag = normalizedMarkdown
                 markwon.setMarkdown(textView, normalizedMarkdown)

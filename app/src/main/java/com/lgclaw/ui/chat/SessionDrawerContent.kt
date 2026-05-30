@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -231,8 +232,23 @@ private fun DrawerBackgroundLayer(state: ChatUiState) {
     )
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background.copy(alpha = state.drawerBackgroundGlass.coerceIn(0f, 1f))
+        color = drawerAdaptiveScrim(
+            base = MaterialTheme.colorScheme.background,
+            imageOpacity = state.drawerBackgroundOpacity,
+            glass = state.drawerBackgroundGlass,
+            bubbleStyle = UiBubbleStyle.fromKey(state.themeBubbleStyle)
+        )
     ) {}
+}
+
+private fun drawerAdaptiveScrim(base: Color, imageOpacity: Float, glass: Float, bubbleStyle: UiBubbleStyle): Color {
+    val styleBoost = when (bubbleStyle) {
+        UiBubbleStyle.Native -> 0.02f
+        UiBubbleStyle.Frosted -> 0.08f
+        UiBubbleStyle.Water -> 0.12f
+    }
+    val alpha = (glass * 0.66f + imageOpacity * 0.24f + styleBoost).coerceIn(0.1f, 0.76f)
+    return base.copy(alpha = alpha)
 }
 
 @Composable

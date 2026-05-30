@@ -1,8 +1,8 @@
 <div align="center">
-  <img src="./docs/assets/brand/lgclaw-removebg-preview.png" alt="LGClaw" width="86" />
+  <img src="./docs/assets/brand/lgclaw-removebg-preview.png" alt="LGClaw" width="92" />
   <h1>LGClaw</h1>
-  <p><strong>A mobile-first AI agent workspace for Android.</strong></p>
-  <p>Chat, plan, use tools, manage skills, bind agents, remember context, and run an extensible AI assistant directly on your phone.</p>
+  <p><strong>A mobile AI agent workspace for Android.</strong></p>
+  <p>Chat, see images, plan work, call tools, manage skills, bind agents, remember context, and shape the whole experience from your phone.</p>
 </div>
 
 <div align="center">
@@ -10,45 +10,69 @@
 [![Android](https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](#)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Compose-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](#)
 [![Local First](https://img.shields.io/badge/Local--First-Agent%20Runtime-0A84FF?style=for-the-badge)](#)
-[![APK](https://img.shields.io/badge/Download-LGClaw--Pro--debug.apk-f39c12?style=for-the-badge&logo=android&logoColor=white)](./LGClaw-Pro-debug.apk)
+[![Download APK](https://img.shields.io/badge/Download-LGClaw--Pro--debug.apk-f39c12?style=for-the-badge&logo=android&logoColor=white)](./LGClaw-Pro-debug.apk)
 
 </div>
 
 <p align="center">
-  <a href="./README.zh-CN.md">简体中文</a>
+  <a href="./README.zh-CN.md">简体中文</a> ·
+  <a href="./LGClaw-Pro-debug.apk">Download APK</a> ·
+  <a href="https://github.com/ly5201314gjx/LgClaw/releases">Releases</a>
 </p>
 
-## What Is LGClaw?
+![LGClaw cover](./docs/assets/site/demos/cover-en.png)
 
-LGClaw is a heavily customized Android AI agent app based on the PalmClaw/OpenClaw mobile-agent idea. It turns a phone into a local AI command center: one place for model providers, conversations, skills, tools, memory, role cards, agent profiles, planning, attachments, and automation-style workflows.
+## Why LGClaw
 
-This build focuses on a richer Chinese-first user experience, stronger runtime extensibility, and practical mobile controls that feel usable in daily work rather than just a demo.
+Most AI apps are still just a chat box. You ask, it answers, the context fades, and the model is left alone to do everything.
+
+LGClaw is built around a different feeling: an AI assistant that can carry memory, roles, plans, skills, tools, attachments, and model choices with it. It can draft a plan before acting. It can bind an agent profile or role card to a conversation. It can switch providers on the fly. And when the active model supports vision, uploaded images are sent as real multimodal input instead of being reduced to a filename.
+
+It is still an Android app, but it behaves more like a pocket-sized AI control room: close, practical, extensible, and comfortable enough to use every day.
 
 ## Highlights
 
-- **Agent Center**: create, inspect, bind, unbind, test, and AI-complete runtime agents.
-- **Role Cards**: define roleplay/persona cards and bind them to conversations so every turn reads the active card.
-- **Plan Mode**: choose quick, standard, deep, or Codex-style planning. LGClaw generates a plan first, then waits for Execute, Add Requirements, or Cancel.
-- **Skill System**: local skills can be enabled or disabled without disappearing; deletion requires long press and confirmation.
-- **Dynamic Tools**: create runtime tools and expose them to the AI loop without rebuilding the APK.
-- **Memory Compression**: local Codex-style memory compression with TextRank-like sentence scoring plus gzip archival.
-- **Attachment Chat**: send images, PDFs, Word documents, and other files. Vision-capable models receive image content; non-vision models clearly report unsupported vision.
-- **Provider Console**: configure providers, fetch models, equip multiple models per provider, and quickly switch models in chat.
-- **Search Tools**: multiple search engines and browser fallback paths for more resilient web lookup.
-- **Theme Studio**: customize text color, fonts, message bubbles, chat background, sidebar background, blur, opacity, and glass effects.
-- **120Hz-Friendly UI**: the Android window requests the highest supported refresh mode for smoother scrolling and animation.
+- **Multimodal image chat**: a dedicated image upload button sends compressed visual input to vision-capable models. Non-vision models clearly report that image understanding is unsupported.
+- **Plan Mode**: quick, standard, deep, and Codex-style planning. LGClaw writes a plan first, then waits for Execute, Add Requirements, or Cancel.
+- **Agent Center**: create, inspect, edit, AI-complete, test, bind, and unbind runtime agent profiles.
+- **Role Cards**: define persona, tone, boundaries, and behavior. A bound role card is read on every turn.
+- **Skill System**: enable or disable skills without removing them. Deletion requires long press plus confirmation.
+- **Dynamic Tools**: create runtime tools and expose them to the agent loop without rebuilding the APK.
+- **Memory Compression**: local long-term memory and compressed memory with sentence scoring plus gzip archival.
+- **Provider Console**: configure providers, fetch model lists, equip multiple models per provider, and switch models from the chat header.
+- **Search Toolkit**: DuckDuckGo, DuckDuckGo Lite, Mojeek, Wikipedia, StackExchange, and browser fallback paths.
+- **Attachment Chat**: images, PDFs, Word documents, text files, and common local documents.
+- **Theme Studio**: glass bubbles, water-glass styling, fonts, text size, line height, chat backgrounds, sidebar backgrounds, opacity, blur, and readability masks.
+- **120Hz-friendly UI**: the Android window requests the highest supported refresh mode for smoother scrolling and animation.
 
-## Download
+## Install
 
-The debug APK built from this workspace is included for quick testing:
+The repository includes the latest debug APK:
 
 ```text
 LGClaw-Pro-debug.apk
 ```
 
-On GitHub, open the file and download it, or clone the repository and install from the local copy.
+Download it directly from this repository or from [GitHub Releases](https://github.com/ly5201314gjx/LgClaw/releases).
 
-> This APK is a debug build. For public distribution, create a signed release build with your own keystore.
+> This is a debug build for testing and personal use. For public distribution, sign a release build with your own keystore.
+
+## First Run
+
+1. Install the APK on your Android device.
+2. Open Settings and go to the provider/model console.
+3. Enter your API Key and Base URL.
+4. Fetch models and select the models you want to equip.
+5. Return to chat and switch models from the top bar.
+6. For image understanding, choose a vision-capable model such as GPT-4o, GPT-4.1, GPT-5, Gemini, Claude, Qwen-VL, GLM-4V, or a compatible multimodal model.
+
+## Screenshots
+
+<p align="center">
+  <img src="./docs/assets/site/demos/chat-en.jpg" width="30%" alt="Chat" />
+  <img src="./docs/assets/site/demos/provider.jpg" width="30%" alt="Provider console" />
+  <img src="./docs/assets/site/demos/channel.jpg" width="30%" alt="Channels and tools" />
+</p>
 
 ## Build From Source
 
@@ -58,7 +82,7 @@ Requirements:
 - JDK 17
 - Android SDK configured through `local.properties`
 
-Build and test:
+Build, test, and lint:
 
 ```powershell
 .\gradlew.bat assembleDebug testDebugUnitTest lintDebug --stacktrace
@@ -75,30 +99,31 @@ app/build/outputs/apk/debug/app-debug.apk
 ```text
 LGClaw/
   app/src/main/java/com/lgclaw/
-    agent/          Agent loop and context assembly
-    agents/         Agent profiles, role bindings, runtime context
+    agent/          Agent loop, context assembly, planning dispatch
+    agents/         Agent profiles, role cards, session bindings
     memory/         Long-term memory and compressed memory
-    providers/      OpenAI-compatible, Anthropic-compatible, Responses providers
-    skills/         Skill loading and matching
-    tools/          Android, file, web, search, dynamic, and workflow tools
-    ui/             Compose chat UI, settings, panels, theme, onboarding
+    providers/      OpenAI, Anthropic, Responses, and compatible providers
+    skills/         Skill loading, enabling, matching, and runtime use
+    tools/          Android, local files, search, web, dynamic tools
+    ui/             Compose chat UI, settings, drawer, theme, panels
   app/src/main/assets/
     skills/         Bundled skills
     templates/      AGENT / USER / TOOLS / MEMORY / HEARTBEAT templates
-  docs/assets/      Brand and documentation assets
+  docs/assets/      Brand, screenshots, and documentation assets
   LGClaw-Pro-debug.apk
 ```
 
 ## Privacy And Safety
 
-- LGClaw stores app data locally on the phone unless a configured provider, channel, or tool explicitly sends data out.
-- Model API keys are user-supplied and saved through the app configuration flow.
-- The AI agent can use only the tools exposed by the runtime and Android permissions granted by the user.
-- Debug APKs are convenient for testing but should not replace a signed production release.
+- LGClaw is local-first by default. App data is stored on the phone.
+- Data leaves the device only when a configured model provider, channel, or tool is explicitly used.
+- API keys are supplied and managed by the user inside the app.
+- The agent can use only runtime-exposed tools and Android permissions granted by the user.
+- Debug APKs are convenient for testing but should not replace signed production releases.
 
 ## Credits
 
-LGClaw is a customized Android AI agent project inspired by PalmClaw/OpenClaw-style mobile agent workflows, with extensive runtime, UI, memory, tool, skill, role-card, and planning enhancements.
+LGClaw is inspired by PalmClaw/OpenClaw-style mobile agent workflows and extends that direction with a Chinese-first UI, runtime agents, skills, tools, memory, plan mode, role cards, multimodal chat, and a richer Android experience.
 
 ## License
 
