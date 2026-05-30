@@ -20,7 +20,7 @@
   <a href="https://github.com/ly5201314gjx/LgClaw/releases">Releases</a>
 </p>
 
-![LGClaw cover](./docs/assets/site/demos/cover-en.png)
+![LGClaw cover](./docs/assets/site/demos/cover-lgclaw.png)
 
 ## Why LGClaw
 
@@ -68,11 +68,31 @@ Download it directly from this repository or from [GitHub Releases](https://gith
 
 ## Screenshots
 
-<p align="center">
-  <img src="./docs/assets/site/demos/chat-en.jpg" width="30%" alt="Chat" />
-  <img src="./docs/assets/site/demos/provider.jpg" width="30%" alt="Provider console" />
-  <img src="./docs/assets/site/demos/channel.jpg" width="30%" alt="Channels and tools" />
-</p>
+<table>
+  <tr>
+    <td width="33%" align="center">
+      <img src="./docs/assets/site/demos/screenshot-chat.jpg" alt="LGClaw chat and vision" />
+      <br />
+      <strong>Chat and Vision</strong>
+      <br />
+      <sub>Images, role cards, plan mode, and model switching stay close to the conversation.</sub>
+    </td>
+    <td width="33%" align="center">
+      <img src="./docs/assets/site/demos/screenshot-theme.jpg" alt="LGClaw theme studio" />
+      <br />
+      <strong>Theme Studio</strong>
+      <br />
+      <sub>Fonts, bubbles, backgrounds, and glass effects are adjustable in real time.</sub>
+    </td>
+    <td width="33%" align="center">
+      <img src="./docs/assets/site/demos/screenshot-vision.jpg" alt="LGClaw multimodal message" />
+      <br />
+      <strong>Multimodal Messages</strong>
+      <br />
+      <sub>Phone photos are prepared as visual input for vision-capable models.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Build From Source
 

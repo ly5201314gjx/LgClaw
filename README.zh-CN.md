@@ -20,7 +20,7 @@
   <a href="https://github.com/ly5201314gjx/LgClaw/releases">GitHub Releases</a>
 </p>
 
-![LGClaw cover](./docs/assets/site/demos/cover-zh.png)
+![LGClaw cover](./docs/assets/site/demos/cover-lgclaw.png)
 
 ## 为什么做 LGClaw
 
@@ -68,11 +68,31 @@ LGClaw-Pro-debug.apk
 
 ## 项目截图
 
-<p align="center">
-  <img src="./docs/assets/site/demos/chat.jpg" width="30%" alt="聊天界面" />
-  <img src="./docs/assets/site/demos/provider.jpg" width="30%" alt="模型控制台" />
-  <img src="./docs/assets/site/demos/channel.jpg" width="30%" alt="通道与工具" />
-</p>
+<table>
+  <tr>
+    <td width="33%" align="center">
+      <img src="./docs/assets/site/demos/screenshot-chat.jpg" alt="LGClaw 聊天与读图" />
+      <br />
+      <strong>聊天与读图</strong>
+      <br />
+      <sub>图片、角色卡、计划模式和模型切换都在主对话里完成。</sub>
+    </td>
+    <td width="33%" align="center">
+      <img src="./docs/assets/site/demos/screenshot-theme.jpg" alt="LGClaw 主题工作台" />
+      <br />
+      <strong>主题工作台</strong>
+      <br />
+      <sub>字体、气泡、背景和玻璃质感可以实时调节。</sub>
+    </td>
+    <td width="33%" align="center">
+      <img src="./docs/assets/site/demos/screenshot-vision.jpg" alt="LGClaw 多模态消息" />
+      <br />
+      <strong>多模态消息</strong>
+      <br />
+      <sub>手机原图会压缩成视觉模型可读取的输入。</sub>
+    </td>
+  </tr>
+</table>
 
 ## 从源码构建
 
