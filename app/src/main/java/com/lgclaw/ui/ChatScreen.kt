@@ -89,6 +89,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -319,6 +320,8 @@ fun ChatScreen(vm: ChatViewModel) {
     var revealApiKey by rememberSaveable { mutableStateOf(false) }
     var showChatSearch by rememberSaveable { mutableStateOf(false) }
     var modelMenuExpanded by rememberSaveable { mutableStateOf(false) }
+    var showCompressionConfirm by rememberSaveable { mutableStateOf(false) }
+    var showCompressionCancelConfirm by rememberSaveable { mutableStateOf(false) }
     var showHeartbeatEditor by rememberSaveable { mutableStateOf(false) }
     var roleCardMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var showQuickRoleCardDialog by rememberSaveable { mutableStateOf(false) }
@@ -2667,6 +2670,48 @@ fun ChatScreen(vm: ChatViewModel) {
         )
     }
 
+    if (showCompressionConfirm) {
+        AlertDialog(
+            onDismissRequest = { showCompressionConfirm = false },
+            title = { Text("主动压缩当前对话？") },
+            text = {
+                Text(
+                    "当前有效上下文约 ${"%.1f".format(Locale.US, state.currentConversationK)}K。压缩会把较早消息写入本地 GZIP 归档，并生成摘要继续参与后续对话。"
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showCompressionConfirm = false
+                        vm.startManualCompression()
+                    }
+                ) { Text("开始压缩") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCompressionConfirm = false }) { Text("取消") }
+            }
+        )
+    }
+
+    if (showCompressionCancelConfirm) {
+        AlertDialog(
+            onDismissRequest = { showCompressionCancelConfirm = false },
+            title = { Text("取消压缩？") },
+            text = { Text("取消后会停止当前压缩进程，已经完成写入的压缩记录不会被删除。") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showCompressionCancelConfirm = false
+                        vm.cancelCompression()
+                    }
+                ) { Text("确认取消") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCompressionCancelConfirm = false }) { Text("继续压缩") }
+            }
+        )
+    }
+
     if (pendingDeleteMessageIds.isNotEmpty()) {
         AlertDialog(
             onDismissRequest = { pendingDeleteMessageIds = emptyList() },
@@ -2826,7 +2871,76 @@ fun ChatScreen(vm: ChatViewModel) {
                                 IconButton(onClick = { showChatSearch = !showChatSearch }, modifier = Modifier.size(36.dp)) {
                                     Icon(Icons.Rounded.Search, contentDescription = "搜索聊天", modifier = Modifier.size(19.dp))
                                 }
-                                Text("${"%.1f".format(Locale.US, state.currentConversationK)}K", style = MaterialTheme.typography.labelMedium)
+                                Surface(
+                                    modifier = Modifier
+                                        .height(28.dp)
+                                        .combinedClickable(
+                                            onClick = { vm.showSettingsInfo("长按 K 值可主动压缩当前对话") },
+                                            onLongClick = { showCompressionConfirm = true }
+                                        ),
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.42f),
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.18f))
+                                ) {
+                                    Box(
+                                        modifier = Modifier.padding(horizontal = 9.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            "${"%.1f".format(Locale.US, state.currentConversationK)}K",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                            if (state.compressionProgress.running) {
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 2.dp)
+                                        .clickable { showCompressionCancelConfirm = true },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.52f),
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.16f))
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = state.compressionProgress.stage.ifBlank { "正在压缩" },
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            Text(
+                                                text = "${(state.compressionProgress.progress * 100).roundToInt()}%",
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
+                                        }
+                                        LinearProgressIndicator(
+                                            progress = { state.compressionProgress.progress.coerceIn(0f, 1f) },
+                                            modifier = Modifier.fillMaxWidth().height(3.dp)
+                                        )
+                                        Text(
+                                            text = state.compressionProgress.path.ifBlank { "本地消息 -> 摘要 -> GZIP 归档 -> K 值刷新" },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
                             }
                             Row(
                                 modifier = Modifier

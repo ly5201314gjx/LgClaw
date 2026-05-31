@@ -193,6 +193,7 @@ class AgentLoop(
         val history = repository.getMessages(sessionId)
         val longTermMemory = memoryStore.readLongTerm()
         val compressedMemorySummary = compressedMemoryStore.buildContextSummary(sessionId)
+        val compressedMemoryCutoffAt = compressedMemoryStore.list(sessionId).maxOfOrNull { it.lastMessageAt } ?: 0L
         val llmMessages = contextBuilder.build(
             sessionId = sessionId,
             messages = history,
@@ -202,6 +203,7 @@ class AgentLoop(
             ),
             longTermMemory = longTermMemory,
             compressedMemorySummary = compressedMemorySummary,
+            compressedMemoryCutoffAt = compressedMemoryCutoffAt,
             activeSkillsContent = activeSkillsContent,
             skillsSummary = skillsSummary,
             systemPolicyTemplate = systemPolicyTemplate,

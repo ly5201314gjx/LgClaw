@@ -168,6 +168,15 @@ data class UiPendingPlan(
     val createdAt: Long,
     val additions: String = ""
 )
+
+data class UiCompressionProgress(
+    val running: Boolean = false,
+    val manual: Boolean = false,
+    val progress: Float = 0f,
+    val stage: String = "",
+    val path: String = ""
+)
+
 /**
  * Single immutable view state consumed by the main chat UI.
  */
@@ -317,6 +326,7 @@ data class ChatUiState(
     val sessionBindingWeComInfo: String? = null,
     val settingsSaving: Boolean = false,
     val currentConversationK: Double = 0.0,
+    val compressionProgress: UiCompressionProgress = UiCompressionProgress(),
     val skills: List<UiManagedSkill> = emptyList(),
     val dynamicTools: List<UiDynamicTool> = emptyList(),
     val compressedMemories: List<UiCompressedMemory> = emptyList(),

@@ -23,12 +23,14 @@ class ContextBuilder {
         maxHistoryMessages: Int,
         longTermMemory: String,
         compressedMemorySummary: String = "",
+        compressedMemoryCutoffAt: Long = 0L,
         activeSkillsContent: String,
         skillsSummary: String,
         systemPolicyTemplate: String?,
         agentProfileContext: String = ""
     ): List<ChatMessage> {
         val filtered = messages
+            .filter { compressedMemoryCutoffAt <= 0L || it.createdAt > compressedMemoryCutoffAt }
             .filterNot { shouldSkipInContext(it) }
             .takeLast(maxHistoryMessages)
 

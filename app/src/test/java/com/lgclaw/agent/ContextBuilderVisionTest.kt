@@ -68,4 +68,47 @@ class ContextBuilderVisionTest {
 
         assertTrue(built.last().contentParts.isEmpty())
     }
+
+    @Test
+    fun build_excludesMessagesCoveredByCompressedMemoryCutoff() {
+        val messages = listOf(
+            MessageEntity(
+                id = 1,
+                sessionId = "s",
+                role = "user",
+                content = "已经写进压缩摘要的旧需求",
+                createdAt = 100
+            ),
+            MessageEntity(
+                id = 2,
+                sessionId = "s",
+                role = "assistant",
+                content = "已经写进压缩摘要的旧回答",
+                createdAt = 200
+            ),
+            MessageEntity(
+                id = 3,
+                sessionId = "s",
+                role = "user",
+                content = "压缩之后的新问题",
+                createdAt = 300
+            )
+        )
+
+        val built = ContextBuilder().build(
+            sessionId = "s",
+            messages = messages,
+            maxHistoryMessages = 8,
+            longTermMemory = "",
+            compressedMemorySummary = "[cm_test] 旧需求摘要",
+            compressedMemoryCutoffAt = 200,
+            activeSkillsContent = "",
+            skillsSummary = "",
+            systemPolicyTemplate = null
+        )
+
+        assertEquals(2, built.size)
+        assertTrue(built.first().content.contains("旧需求摘要"))
+        assertEquals("压缩之后的新问题", built.last().content)
+    }
 }

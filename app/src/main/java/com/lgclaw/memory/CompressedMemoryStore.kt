@@ -73,18 +73,30 @@ class CompressedMemoryStore(context: Context) {
     }
 
     fun compressIfNeeded(sessionId: String, messages: List<MessageEntity>, thresholdK: Int): CompressedMemoryRecord? {
-        val safeThreshold = thresholdK.coerceIn(0, 1000)
-        if (safeThreshold <= 0) return null
-        val totalK = estimateK(messages)
-        if (totalK < safeThreshold) return null
-        val candidates = messages
-            .filter { it.content.isNotBlank() && it.role != "tool" }
-            .dropLast((messages.size / 3).coerceAtLeast(6))
-        if (candidates.size < 4) return null
+        if (!CompressionPolicy.shouldCompress(estimateEffectiveK(sessionId, messages), thresholdK)) return null
+        return compressNow(
+            sessionId = sessionId,
+            messages = messages,
+            keepRecentMessages = 6,
+            minCandidates = 2
+        )
+    }
+
+    fun compressNow(
+        sessionId: String,
+        messages: List<MessageEntity>,
+        keepRecentMessages: Int = 2,
+        minCandidates: Int = 1
+    ): CompressedMemoryRecord? {
         val existingLast = list(sessionId).maxOfOrNull { it.lastMessageAt } ?: 0L
-        val newMessages = candidates.filter { it.createdAt > existingLast }
-        if (newMessages.size < 4) return null
-        return compress(sessionId, newMessages)
+        val selection = CompressionPolicy.selectCandidates(
+            messages = messages,
+            lastCompressedAt = existingLast,
+            keepRecentMessages = keepRecentMessages,
+            minCandidates = minCandidates
+        )
+        if (selection.candidates.isEmpty()) return null
+        return compress(sessionId, selection.candidates)
     }
 
     fun compress(sessionId: String, messages: List<MessageEntity>): CompressedMemoryRecord? {
@@ -254,7 +266,8 @@ class CompressedMemoryStore(context: Context) {
             "the", "and", "for", "are", "you", "that", "this", "with", "from", "have", "was", "were", "will", "can",
             "but", "not", "your", "all", "any", "use", "using", "about", "into", "then", "than", "a", "an", "to", "of",
             "is", "in", "on", "it", "as", "or", "be", "by", "at", "we", "i", "me", "my", "our",
-            "这个", "那个", "然后", "就是", "需要", "可以", "进行", "功能", "一个", "没有", "不要", "以及", "如果", "但是"
+            "这个", "那个", "然后", "就是", "需要", "可以", "进行", "功能", "一个", "没有", "不要", "以及",
+            "如果", "但是", "当前", "用户", "助手", "对话", "内容", "已经", "还是", "因为", "所以", "现在"
         )
     }
 

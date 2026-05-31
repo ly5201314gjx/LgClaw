@@ -75,6 +75,7 @@ import com.lgclaw.cron.CronService
 import com.lgclaw.heartbeat.HeartbeatService
 import com.lgclaw.memory.MemoryStore
 import com.lgclaw.memory.CompressedMemoryStore
+import com.lgclaw.memory.CompressionPolicy
 import com.lgclaw.providers.AdaptiveLlmProvider
 import com.lgclaw.providers.ChatMessage
 import com.lgclaw.providers.LlmProviderFactory
@@ -119,6 +120,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -139,6 +141,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.coroutineContext
 
 class ChatViewModel(
     app: Application
@@ -218,6 +221,8 @@ class ChatViewModel(
     private val uiJson = environment.uiJson
 
     private var generatingJob: Job? = null
+    private var compressionJob: Job? = null
+    private val autoCompressionSessions = mutableSetOf<String>()
     private var firstRunAutoIntroPending = false
     private var mcpServerStatuses: Map<String, UiMcpServerRuntimeStatus> = emptyMap()
     private val gatewayProcessingSessions = mutableSetOf<String>()
@@ -1459,6 +1464,30 @@ class ChatViewModel(
     fun clearSettingsInfo() {
         _uiState.update {
             if (it.settingsInfo == null) it else it.copy(settingsInfo = null)
+        }
+    }
+
+    fun startManualCompression() {
+        if (compressionJob?.isActive == true) {
+            showSettingsInfo("已有压缩任务正在运行")
+            return
+        }
+        val sessionId = currentSessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID }
+        compressionJob = viewModelScope.launch(Dispatchers.IO) {
+            runCompressionForSession(
+                sessionId = sessionId,
+                manual = true,
+                keepRecentMessages = 2,
+                minCandidates = 1
+            )
+        }
+    }
+
+    fun cancelCompression() {
+        val active = compressionJob?.isActive == true
+        compressionJob?.cancel(CancellationException("用户取消压缩"))
+        if (!active) {
+            showSettingsInfo("当前没有正在压缩的任务")
         }
     }
 
@@ -4931,6 +4960,8 @@ class ChatViewModel(
                 sessionTitle = sessionTitle,
                 text = text
             )
+            val freshMessages = messageRepository.getMessages(sessionId)
+            refreshConversationMetrics(freshMessages)
             return
         }
         RuntimeController.runUserMessage(
@@ -4939,6 +4970,8 @@ class ChatViewModel(
             sessionTitle = sessionTitle,
             text = text
         )
+        val freshMessages = messageRepository.getMessages(sessionId)
+        refreshConversationMetrics(freshMessages)
     }
 
     private suspend fun triggerHeartbeatViaActiveRuntime(): String {
@@ -5635,8 +5668,9 @@ class ChatViewModel(
     }
 
     private fun refreshConversationMetrics(messages: List<MessageEntity>) {
-        val currentK = compressedMemoryStore.estimateEffectiveK(currentSessionId, messages)
-        val memories = compressedMemoryStore.list(currentSessionId).map {
+        val sessionId = currentSessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID }
+        val currentK = compressedMemoryStore.estimateEffectiveK(sessionId, messages)
+        val memories = compressedMemoryStore.list(sessionId).map {
             UiCompressedMemory(
                 id = it.id,
                 sessionId = it.sessionId,
@@ -5649,6 +5683,152 @@ class ChatViewModel(
             )
         }
         _uiState.update { it.copy(currentConversationK = currentK, compressedMemories = memories) }
+        maybeStartAutoCompression(sessionId, messages, currentK)
+    }
+
+    private fun maybeStartAutoCompression(sessionId: String, messages: List<MessageEntity>, currentK: Double) {
+        if (compressionJob?.isActive == true) return
+        if (sessionId in autoCompressionSessions) return
+        val threshold = configStore.getConfig().compressionThresholdK
+        if (!CompressionPolicy.shouldCompress(currentK, threshold)) return
+        val lastCompressedAt = compressedMemoryStore.list(sessionId).maxOfOrNull { it.lastMessageAt } ?: 0L
+        val selection = CompressionPolicy.selectCandidates(
+            messages = messages,
+            lastCompressedAt = lastCompressedAt,
+            keepRecentMessages = 6,
+            minCandidates = 2
+        )
+        if (selection.candidates.isEmpty()) return
+        compressionJob = viewModelScope.launch(Dispatchers.IO) {
+            autoCompressionSessions.add(sessionId)
+            try {
+                runCompressionForSession(
+                    sessionId = sessionId,
+                    manual = false,
+                    keepRecentMessages = 6,
+                    minCandidates = 2
+                )
+            } finally {
+                autoCompressionSessions.remove(sessionId)
+            }
+        }
+    }
+
+    private suspend fun runCompressionForSession(
+        sessionId: String,
+        manual: Boolean,
+        keepRecentMessages: Int,
+        minCandidates: Int
+    ) {
+        fun updateProgress(progress: Float, stage: String, path: String) {
+            _uiState.update {
+                it.copy(
+                    compressionProgress = UiCompressionProgress(
+                        running = true,
+                        manual = manual,
+                        progress = progress.coerceIn(0f, 1f),
+                        stage = stage,
+                        path = path
+                    )
+                )
+            }
+        }
+
+        try {
+            updateProgress(0.08f, "读取当前对话", "消息仓库 -> 当前会话")
+            coroutineContext.ensureActive()
+            val messages = messageRepository.getMessages(sessionId)
+            val lastCompressedAt = compressedMemoryStore.list(sessionId).maxOfOrNull { it.lastMessageAt } ?: 0L
+            val selection = CompressionPolicy.selectCandidates(
+                messages = messages,
+                lastCompressedAt = lastCompressedAt,
+                keepRecentMessages = keepRecentMessages,
+                minCandidates = minCandidates
+            )
+            if (selection.candidates.isEmpty()) {
+                _uiState.update {
+                    it.copy(
+                        compressionProgress = UiCompressionProgress(),
+                        settingsInfo = if (manual) "没有新的可压缩内容：${selection.reason.ifBlank { "候选消息为空" }}" else it.settingsInfo
+                    )
+                }
+                return
+            }
+
+            updateProgress(0.28f, "筛选压缩范围", "保留最近 ${selection.keptRecentCount} 条，压缩 ${selection.candidates.size} 条")
+            delay(90)
+            coroutineContext.ensureActive()
+            updateProgress(0.48f, "生成本地摘要", "TextRank 句子评分 + 关键词抽取")
+            delay(90)
+            coroutineContext.ensureActive()
+            updateProgress(0.68f, "写入压缩归档", "GZIP 原文归档 -> 本地记忆目录")
+            val record = compressedMemoryStore.compressNow(
+                sessionId = sessionId,
+                messages = messages,
+                keepRecentMessages = keepRecentMessages,
+                minCandidates = minCandidates
+            )
+            coroutineContext.ensureActive()
+            updateProgress(0.88f, "刷新前端 K 值", "压缩索引 -> 顶部 K 值 -> 记忆面板")
+            val freshMessages = messageRepository.getMessages(sessionId)
+            val newK = compressedMemoryStore.estimateEffectiveK(sessionId, freshMessages)
+            val memories = compressedMemoryStore.list(sessionId).map {
+                UiCompressedMemory(
+                    id = it.id,
+                    sessionId = it.sessionId,
+                    createdAt = it.createdAt,
+                    algorithm = it.algorithm,
+                    summary = it.summary,
+                    originalChars = it.originalChars,
+                    compressedBytes = it.compressedBytes,
+                    messageCount = it.messageCount
+                )
+            }
+            _uiState.update {
+                it.copy(
+                    currentConversationK = newK,
+                    compressedMemories = memories,
+                    compressionProgress = UiCompressionProgress(
+                        running = true,
+                        manual = manual,
+                        progress = 1f,
+                        stage = "压缩完成",
+                        path = record?.let { item -> "${item.id}：${item.originalChars} 字符 -> ${item.compressedBytes} 字节" }
+                            ?: "没有写入新的压缩记录"
+                    ),
+                    settingsInfo = record?.let { item ->
+                        "压缩完成：${item.messageCount} 条消息，当前有效上下文 ${"%.1f".format(Locale.US, newK)}K"
+                    } ?: if (manual) "没有新的可压缩内容" else it.settingsInfo
+                )
+            }
+            delay(900)
+        } catch (cancelled: CancellationException) {
+            _uiState.update {
+                it.copy(
+                    compressionProgress = UiCompressionProgress(),
+                    settingsInfo = "压缩已取消"
+                )
+            }
+            throw cancelled
+        } catch (t: Throwable) {
+            _uiState.update {
+                it.copy(
+                    compressionProgress = UiCompressionProgress(),
+                    settingsInfo = "压缩失败：${t.message ?: t.javaClass.simpleName}"
+                )
+            }
+        } finally {
+            if (compressionJob == coroutineContext[Job]) {
+                compressionJob = null
+            }
+            _uiState.update { state ->
+                if (!state.compressionProgress.running) {
+                    state
+                } else {
+                    state.copy(compressionProgress = UiCompressionProgress())
+                }
+            }
+        }
     }
     private fun syncGeneratingState() {
         val activeSessionId = currentSessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID }
