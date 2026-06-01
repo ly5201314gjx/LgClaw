@@ -50,6 +50,9 @@ class RoleCardRepository(
             boundaries = boundaries.trim().take(1600),
             scenario = scenario.trim().take(1600),
             exampleDialog = exampleDialog.trim().take(2400),
+            avatarPresetKey = old?.avatarPresetKey.orEmpty(),
+            avatarImagePath = old?.avatarImagePath.orEmpty(),
+            avatarCropJson = old?.avatarCropJson.orEmpty(),
             enabled = enabled,
             createdAt = old?.createdAt ?: now,
             updatedAt = now
@@ -60,6 +63,23 @@ class RoleCardRepository(
 
     suspend fun setEnabled(id: String, enabled: Boolean) = withContext(Dispatchers.IO) {
         dao.setEnabled(id.trim(), enabled, System.currentTimeMillis())
+    }
+
+    suspend fun updateAvatar(
+        id: String,
+        presetKey: String,
+        imagePath: String = "",
+        cropJson: String = ""
+    ) = withContext(Dispatchers.IO) {
+        val cleanId = id.trim().ifBlank { throw IllegalArgumentException("角色卡编号不能为空") }
+        dao.getCard(cleanId) ?: throw IllegalArgumentException("角色卡不存在")
+        dao.updateAvatar(
+            id = cleanId,
+            presetKey = presetKey.trim(),
+            imagePath = imagePath.trim(),
+            cropJson = cropJson.trim(),
+            updatedAt = System.currentTimeMillis()
+        )
     }
 
     suspend fun delete(id: String) = withContext(Dispatchers.IO) {

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -69,6 +70,7 @@ internal fun ChatComposerBar(
     onClearPendingPlan: () -> Unit,
     onPickImages: () -> Unit,
     onPickAttachments: () -> Unit,
+    onRequestTerminalOverlayPermission: () -> Unit,
     onRemoveAttachment: (String) -> Unit
 ) {
     Column(
@@ -88,6 +90,13 @@ internal fun ChatComposerBar(
                     val base = state.input.substringBeforeLast("@", state.input)
                     onInputChanged(base + "@" + command + " ")
                 }
+            )
+        }
+        if (state.terminalRuntime.enabled) {
+            TerminalModeBanner(
+                state = state.terminalRuntime,
+                onRequestOverlayPermission = onRequestTerminalOverlayPermission,
+                onCancelTask = onStopGeneration
             )
         }
         PendingAttachmentStrip(
@@ -157,7 +166,7 @@ internal fun ChatComposerBar(
                     ) {
                         if (state.input.isBlank()) {
                             Text(
-                                text = "输入消息，图片和文件都可以一起发",
+                                text = if (state.terminalRuntime.enabled) "输入命令或脚本，按运行即可" else "输入消息，图片和文件都可以一起发",
                                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
                                 color = Color(0xFF8A93A3),
                                 maxLines = 2,
@@ -214,8 +223,8 @@ internal fun ChatComposerBar(
                                 )
                             } else {
                                 Icon(
-                                    imageVector = Icons.Rounded.KeyboardArrowUp,
-                                    contentDescription = "发送",
+                                    imageVector = if (state.terminalRuntime.enabled) Icons.Rounded.PlayArrow else Icons.Rounded.KeyboardArrowUp,
+                                    contentDescription = if (state.terminalRuntime.enabled) "运行" else "发送",
                                     tint = if (canSend) Color.White else Color(0xFF9AA3B2),
                                     modifier = Modifier.size(20.dp)
                                 )

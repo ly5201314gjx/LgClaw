@@ -27,6 +27,9 @@ interface AgentProfileDao {
     @Query("UPDATE agent_profiles SET enabled = :enabled, updatedAt = :updatedAt WHERE id = :id")
     suspend fun setProfileEnabled(id: String, enabled: Boolean, updatedAt: Long)
 
+    @Query("UPDATE agent_profiles SET avatarPresetKey = :presetKey, avatarImagePath = :imagePath, avatarCropJson = :cropJson, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateProfileAvatar(id: String, presetKey: String, imagePath: String, cropJson: String, updatedAt: Long)
+
     @Query("DELETE FROM agent_profiles WHERE id = :id")
     suspend fun deleteProfile(id: String)
 

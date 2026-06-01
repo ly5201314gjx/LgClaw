@@ -13,7 +13,15 @@ data class RuntimeControllerStatus(
     val gatewayRunning: Boolean = false,
     val activeAdapterCount: Int = 0,
     val lastError: String = "",
-    val processingSessionIds: Set<String> = emptySet()
+    val processingSessionIds: Set<String> = emptySet(),
+    val inlineTraces: List<RuntimeTrace> = emptyList()
+)
+
+data class RuntimeTrace(
+    val sessionId: String,
+    val title: String,
+    val detail: String,
+    val createdAt: Long
 )
 
 object RuntimeController {
@@ -44,7 +52,8 @@ object RuntimeController {
                         gatewayRunning = state.gatewayRunning,
                         activeAdapterCount = state.activeAdapterCount,
                         lastError = state.lastError,
-                        processingSessionIds = state.processingSessionIds
+                        processingSessionIds = state.processingSessionIds,
+                        inlineTraces = state.inlineTraces
                     )
                 }
             }.also {

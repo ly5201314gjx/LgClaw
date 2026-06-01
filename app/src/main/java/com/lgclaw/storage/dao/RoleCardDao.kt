@@ -23,6 +23,9 @@ interface RoleCardDao {
     @Query("UPDATE role_cards SET enabled = :enabled, updatedAt = :updatedAt WHERE id = :id")
     suspend fun setEnabled(id: String, enabled: Boolean, updatedAt: Long)
 
+    @Query("UPDATE role_cards SET avatarPresetKey = :presetKey, avatarImagePath = :imagePath, avatarCropJson = :cropJson, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateAvatar(id: String, presetKey: String, imagePath: String, cropJson: String, updatedAt: Long)
+
     @Query("DELETE FROM role_cards WHERE id = :id")
     suspend fun delete(id: String)
 }

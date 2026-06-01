@@ -12,8 +12,15 @@ object AppStoragePaths {
     private const val SKILLS_DIR = "skills"
     private const val TEMPLATES_DIR = "templates"
     private const val TOOLS_DIR = "tools"
+    private const val TERMINAL_DIR = "terminal"
+    private const val TERMINAL_HOME_DIR = "home"
+    private const val TERMINAL_WORKSPACES_DIR = "workspaces"
+    private const val TERMINAL_BIN_DIR = "bin"
+    private const val TERMINAL_LOGS_DIR = "logs"
+    private const val TERMINAL_CACHE_DIR = "cache"
     private const val DOCS_DIR = "docs"
     private const val LOGS_DIR = "logs"
+    private const val AVATARS_DIR = "avatars"
     private const val CRON_LOG_FILE = "cron.log"
     private const val AGENT_LOG_FILE = "agent.log"
 
@@ -31,9 +38,29 @@ object AppStoragePaths {
 
     fun toolsDir(context: Context): File = File(storageRoot(context), TOOLS_DIR).apply { mkdirs() }
 
+    fun terminalDir(context: Context): File = File(storageRoot(context), TERMINAL_DIR).apply { mkdirs() }
+
+    fun terminalPrefixDir(context: Context): File =
+        File("/data/data/${context.packageName}/files/usr").apply { mkdirs() }
+
+    fun terminalTermuxHomeDir(context: Context): File =
+        File("/data/data/${context.packageName}/files/home").apply { mkdirs() }
+
+    fun terminalHomeDir(context: Context): File = File(terminalDir(context), TERMINAL_HOME_DIR).apply { mkdirs() }
+
+    fun terminalWorkspacesDir(context: Context): File = File(terminalDir(context), TERMINAL_WORKSPACES_DIR).apply { mkdirs() }
+
+    fun terminalBinDir(context: Context): File = File(terminalDir(context), TERMINAL_BIN_DIR).apply { mkdirs() }
+
+    fun terminalLogsDir(context: Context): File = File(terminalDir(context), TERMINAL_LOGS_DIR).apply { mkdirs() }
+
+    fun terminalCacheDir(context: Context): File = File(terminalDir(context), TERMINAL_CACHE_DIR).apply { mkdirs() }
+
     fun docsDir(context: Context): File = File(storageRoot(context), DOCS_DIR).apply { mkdirs() }
 
     fun logsDir(context: Context): File = File(storageRoot(context), LOGS_DIR).apply { mkdirs() }
+
+    fun avatarsDir(context: Context): File = File(storageRoot(context), AVATARS_DIR).apply { mkdirs() }
 
     fun heartbeatDocFile(context: Context): File = File(docsDir(context), HeartbeatDoc.FILE_NAME)
 

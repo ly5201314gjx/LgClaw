@@ -43,6 +43,9 @@ data class UiAgentProfile(
     val enabled: Boolean,
     val defaultSkills: List<String>,
     val dynamicTools: List<String>,
+    val avatarPresetKey: String = "",
+    val avatarImagePath: String = "",
+    val avatarCropJson: String = "",
     val updatedAt: Long
 )
 
@@ -57,6 +60,9 @@ data class UiRoleCard(
     val id: String,
     val name: String,
     val avatarSymbol: String,
+    val avatarPresetKey: String = "",
+    val avatarImagePath: String = "",
+    val avatarCropJson: String = "",
     val description: String,
     val persona: String,
     val speakingStyle: String,
@@ -65,6 +71,21 @@ data class UiRoleCard(
     val exampleDialog: String,
     val enabled: Boolean,
     val updatedAt: Long
+)
+
+data class UiAvatarInfo(
+    val presetKey: String = "",
+    val imagePath: String = "",
+    val cropJson: String = "",
+    val fallbackSymbol: String = ""
+)
+
+data class UiInlineTrace(
+    val id: String,
+    val sessionId: String,
+    val title: String,
+    val detail: String,
+    val createdAt: Long
 )
 
 data class UiNovelProject(
@@ -175,6 +196,31 @@ data class UiCompressionProgress(
     val progress: Float = 0f,
     val stage: String = "",
     val path: String = ""
+)
+
+data class UiTerminalLine(
+    val stream: String,
+    val text: String,
+    val createdAt: Long
+)
+
+data class UiTerminalRuntimeState(
+    val enabled: Boolean = false,
+    val ready: Boolean = false,
+    val overlayPermissionGranted: Boolean = false,
+    val installing: Boolean = false,
+    val installProgress: Float = 0f,
+    val installMessage: String = "",
+    val toolchainRoot: String = "",
+    val shellPath: String = "",
+    val installedExecutables: List<String> = emptyList(),
+    val missingExecutables: List<String> = emptyList(),
+    val activeCommand: String = "",
+    val activeWorkspace: String = "",
+    val activeJobId: String = "",
+    val lastExitCode: Int? = null,
+    val lastError: String = "",
+    val recentOutput: List<UiTerminalLine> = emptyList()
 )
 
 /**
@@ -327,6 +373,7 @@ data class ChatUiState(
     val settingsSaving: Boolean = false,
     val currentConversationK: Double = 0.0,
     val compressionProgress: UiCompressionProgress = UiCompressionProgress(),
+    val terminalRuntime: UiTerminalRuntimeState = UiTerminalRuntimeState(),
     val skills: List<UiManagedSkill> = emptyList(),
     val dynamicTools: List<UiDynamicTool> = emptyList(),
     val compressedMemories: List<UiCompressedMemory> = emptyList(),
@@ -336,6 +383,8 @@ data class ChatUiState(
     val roleCards: List<UiRoleCard> = emptyList(),
     val activeRoleCardId: String = "",
     val currentRoleCardName: String = "",
+    val currentAgentAvatar: UiAvatarInfo = UiAvatarInfo(),
+    val currentRoleCardAvatar: UiAvatarInfo = UiAvatarInfo(),
     val novelProjects: List<UiNovelProject> = emptyList(),
     val activeNovelProjectId: String = "",
     val novelChapters: List<UiNovelChapter> = emptyList(),
@@ -349,6 +398,7 @@ data class ChatUiState(
     val planModeLevel: UiPlanModeLevel = UiPlanModeLevel.Off,
     val pendingPlan: UiPendingPlan? = null,
     val isPlanning: Boolean = false,
+    val inlineTraces: List<UiInlineTrace> = emptyList(),
     val settingsInfo: String? = null
 )
 

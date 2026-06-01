@@ -6,15 +6,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -89,9 +85,7 @@ internal fun SessionDrawerContent(
             ) {
                 DrawerHero(onCreateSessionRequest)
                 LazyColumn(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     items(state.sessions, key = { it.id }) { session ->
@@ -121,12 +115,12 @@ internal fun SessionDrawerContent(
 @Composable
 private fun DrawerHero(onCreateSessionRequest: () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(18.dp),
         color = Color(0xFFF8FAFD),
         border = BorderStroke(1.dp, Color(0xFFE7EAF1)),
-        shadowElevation = 4.dp
+        shadowElevation = 1.dp
     ) {
-        Row(
+        androidx.compose.foundation.layout.Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .drawBehind {
@@ -136,7 +130,7 @@ private fun DrawerHero(onCreateSessionRequest: () -> Unit) {
                             start = Offset.Zero,
                             end = Offset(size.width, size.height)
                         ),
-                        cornerRadius = CornerRadius(20.dp.toPx(), 20.dp.toPx())
+                        cornerRadius = CornerRadius(18.dp.toPx(), 18.dp.toPx())
                     )
                 }
                 .padding(10.dp),
@@ -190,28 +184,25 @@ private fun DrawerSessionRow(
             .fillMaxWidth()
             .clickable(onClick = onSelect),
         tonalElevation = 0.dp,
-        shadowElevation = if (selected) 6.dp else 0.dp,
-        shape = RoundedCornerShape(16.dp),
+        shadowElevation = if (selected) 4.dp else 0.dp,
+        shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, if (selected) Color(0xFFDCE7FF) else Color(0xFFECEFF4)),
         color = if (selected) Color(0xFFF4F8FF) else Color(0xFFFBFCFE)
     ) {
-        Row(
+        androidx.compose.foundation.layout.Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 9.dp, end = 3.dp, top = 7.dp, bottom = 7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             val secondaryLabel = if (session.isLocal) {
-                tr("本地管理会话", "")
+                "本地管理会话"
             } else {
-                session.boundChannel
-                    .takeIf { it.isNotBlank() }
-                    ?.let { channelDisplayLabel(it) }
-                    ?: tr("本地", "本地")
+                session.boundChannel.takeIf { it.isNotBlank() }?.let { channelDisplayLabel(it) } ?: "本地"
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (session.isLocal) tr("LOCAL", "") else session.title,
+                    text = if (session.isLocal) "本地" else session.title,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                     color = Color(0xFF1A1E27),
@@ -228,13 +219,13 @@ private fun DrawerSessionRow(
             }
             if (!session.isLocal) {
                 MinimalActionIconButton(onClick = onRename) {
-                    Icon(Icons.Outlined.Edit, contentDescription = uiLabel("重命名会话"), tint = Color(0xFF697386))
+                    Icon(Icons.Outlined.Edit, contentDescription = "重命名会话", tint = Color(0xFF697386))
                 }
                 MinimalActionIconButton(onClick = onConfigure) {
-                    Icon(Icons.Outlined.Settings, contentDescription = uiLabel("配置会话渠道"), tint = Color(0xFF697386))
+                    Icon(Icons.Outlined.Settings, contentDescription = "配置会话渠道", tint = Color(0xFF697386))
                 }
                 MinimalActionIconButton(onClick = onDelete) {
-                    Icon(Icons.Outlined.DeleteOutline, contentDescription = uiLabel("删除会话"), tint = Color(0xFFB4473F))
+                    Icon(Icons.Outlined.DeleteOutline, contentDescription = "删除会话", tint = Color(0xFFB4473F))
                 }
             }
         }
@@ -251,15 +242,15 @@ private fun DrawerActionGrid(
     onOpenSettings: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             DrawerActionTile("智能体", Icons.Rounded.Psychology, onOpenAgents, Modifier.weight(1f))
             DrawerActionTile("技能", Icons.Rounded.Extension, onOpenSkills, Modifier.weight(1f))
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             DrawerActionTile("工具", Icons.Rounded.Build, onOpenTools, Modifier.weight(1f))
             DrawerActionTile("记忆", Icons.Rounded.Memory, onOpenMemory, Modifier.weight(1f))
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             DrawerActionTile("主题", Icons.Outlined.Settings, onOpenTheme, Modifier.weight(1f))
             DrawerActionTile("设置", Icons.Outlined.Settings, onOpenSettings, Modifier.weight(1f))
         }
@@ -276,8 +267,8 @@ private fun DrawerActionTile(
     Surface(
         modifier = modifier.clickable(onClick = onClick),
         tonalElevation = 0.dp,
-        shadowElevation = 2.dp,
-        shape = RoundedCornerShape(16.dp),
+        shadowElevation = 0.dp,
+        shape = RoundedCornerShape(14.dp),
         color = Color(0xFFFBFCFE),
         border = BorderStroke(1.dp, Color(0xFFE8ECF3))
     ) {
@@ -313,7 +304,7 @@ private fun DrawerBackgroundLayer(state: ChatUiState) {
         modifier = Modifier
             .fillMaxSize()
             .graphicsLayer { alpha = state.drawerBackgroundOpacity.coerceIn(0f, 1f) }
-            .blur(state.drawerBackgroundBlur.coerceIn(0f, 40f).dp)
+            .blur(state.drawerBackgroundBlur.coerceIn(0f, 24f).dp)
             .clip(RoundedCornerShape(0.dp))
     )
     Surface(
@@ -333,6 +324,6 @@ private fun drawerAdaptiveScrim(base: Color, imageOpacity: Float, glass: Float, 
         UiBubbleStyle.Frosted -> 0.08f
         UiBubbleStyle.Water -> 0.12f
     }
-    val alpha = (glass * 0.66f + imageOpacity * 0.24f + styleBoost).coerceIn(0.1f, 0.76f)
+    val alpha = (glass * 0.66f + imageOpacity * 0.24f + styleBoost).coerceIn(0.1f, 0.72f)
     return base.copy(alpha = alpha)
 }

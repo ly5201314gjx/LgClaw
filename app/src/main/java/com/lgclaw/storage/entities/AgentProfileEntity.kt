@@ -13,6 +13,9 @@ data class AgentProfileEntity(
     val enabled: Boolean,
     val defaultSkillNamesJson: String,
     val dynamicToolNamesJson: String,
+    val avatarPresetKey: String = "",
+    val avatarImagePath: String = "",
+    val avatarCropJson: String = "",
     val createdAt: Long,
     val updatedAt: Long
 )

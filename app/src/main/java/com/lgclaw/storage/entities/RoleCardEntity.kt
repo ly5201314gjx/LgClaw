@@ -14,6 +14,9 @@ data class RoleCardEntity(
     val boundaries: String,
     val scenario: String,
     val exampleDialog: String,
+    val avatarPresetKey: String = "",
+    val avatarImagePath: String = "",
+    val avatarCropJson: String = "",
     val enabled: Boolean,
     val createdAt: Long,
     val updatedAt: Long

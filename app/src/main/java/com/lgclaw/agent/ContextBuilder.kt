@@ -27,7 +27,8 @@ class ContextBuilder {
         activeSkillsContent: String,
         skillsSummary: String,
         systemPolicyTemplate: String?,
-        agentProfileContext: String = ""
+        agentProfileContext: String = "",
+        executionPlanContext: String = ""
     ): List<ChatMessage> {
         val filtered = messages
             .filter { compressedMemoryCutoffAt <= 0L || it.createdAt > compressedMemoryCutoffAt }
@@ -91,7 +92,8 @@ class ContextBuilder {
                     activeSkillsContent = activeSkillsContent,
                     skillsSummary = skillsSummary,
                     systemPolicyTemplate = systemPolicyTemplate,
-                    agentProfileContext = agentProfileContext
+                    agentProfileContext = agentProfileContext,
+                    executionPlanContext = executionPlanContext
                 )
             )
         ) + history
@@ -104,7 +106,8 @@ class ContextBuilder {
         activeSkillsContent: String,
         skillsSummary: String,
         systemPolicyTemplate: String?,
-        agentProfileContext: String
+        agentProfileContext: String,
+        executionPlanContext: String
     ): String {
         val now = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         val tz = TimeZone.getDefault().id
@@ -124,12 +127,16 @@ class ContextBuilder {
             4. If a tool fails, explain briefly and continue with best effort.
             5. Prefer plain text unless structured output is explicitly requested.
             6. Reply in the same language as the user's latest message.
+            7. For coding or operational tasks, follow a Codex-style loop: inspect, plan, use skills/tools/terminal, read results, fix errors, verify, then answer.
+            8. Use terminal_exec when code must be written, tested, built, or inspected locally. Do not claim a command succeeded until the tool result confirms it.
+            9. Do not reveal hidden chain-of-thought; show only concise plans, progress, commands, results, and conclusions.
         """.trimIndent()
         val policy = systemPolicyTemplate?.trim().takeUnless { it.isNullOrBlank() } ?: fallbackPolicy
 
         val agentSection = if (agentProfileContext.isBlank()) "" else "\n\n$agentProfileContext"
         val memorySection = if (longTermMemory.isBlank()) "" else "\n\n## Long-term Memory\n$longTermMemory"
         val compressedMemorySection = if (compressedMemorySummary.isBlank()) "" else "\n\n## Compressed Memory (gzip summaries)\n$compressedMemorySummary"
+        val executionPlanSection = if (executionPlanContext.isBlank()) "" else "\n\n## Current Execution Plan\n$executionPlanContext"
         val activeSkillsSection = if (activeSkillsContent.isBlank()) "" else "\n\n## Active Skills\n$activeSkillsContent"
         val summarySection = if (skillsSummary.isBlank()) "" else """
 
@@ -138,7 +145,7 @@ class ContextBuilder {
             If the current task is related to a listed skill, read that skill's `SKILL.md` first, then execute the task according to the skill guidance.
             $skillsSummary
         """.trimIndent()
-        return policy + "\n\n" + runtime + agentSection + memorySection + compressedMemorySection + activeSkillsSection + "\n\n" + summarySection
+        return policy + "\n\n" + runtime + agentSection + memorySection + compressedMemorySection + executionPlanSection + activeSkillsSection + "\n\n" + summarySection
     }
 
 

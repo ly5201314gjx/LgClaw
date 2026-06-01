@@ -33,6 +33,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -296,15 +297,25 @@ fun ChatScreen(vm: ChatViewModel) {
         pendingBluetoothEnableResult?.invoke(enabled)
         pendingBluetoothEnableResult = null
     }
+    var avatarPickerTarget by rememberSaveable { mutableStateOf("") }
+    var showAvatarPickerSheet by rememberSaveable { mutableStateOf(false) }
+    var pendingAvatarSourceUri by remember { mutableStateOf<Uri?>(null) }
     val attachmentPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isNotEmpty()) vm.attachFilesToInput(uris)
     }
     val imagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenMultipleDocuments()
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 8)
     ) { uris ->
         if (uris.isNotEmpty()) vm.attachImagesToInput(uris)
+    }
+    val avatarPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            pendingAvatarSourceUri = uri
+        }
     }
     val chatBackgroundPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -315,6 +326,11 @@ fun ChatScreen(vm: ChatViewModel) {
     val customFontPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri -> vm.setCustomFontFromUri(uri) }
+    val requestOverlayPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        vm.refreshTerminalOverlayPermission()
+    }
     val displayedAssistantText = remember { mutableStateMapOf<Long, String>() }
     val seenMessageIds = remember { mutableStateMapOf<Long, Boolean>() }
     var initializedMessages by rememberSaveable { mutableStateOf(false) }
@@ -325,6 +341,7 @@ fun ChatScreen(vm: ChatViewModel) {
     var modelMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var showCompressionConfirm by rememberSaveable { mutableStateOf(false) }
     var showCompressionCancelConfirm by rememberSaveable { mutableStateOf(false) }
+    var showTerminalSheet by rememberSaveable { mutableStateOf(false) }
     var showHeartbeatEditor by rememberSaveable { mutableStateOf(false) }
     var roleCardMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var showQuickRoleCardDialog by rememberSaveable { mutableStateOf(false) }
@@ -546,6 +563,7 @@ fun ChatScreen(vm: ChatViewModel) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 permissionsRefreshNonce += 1
+                vm.refreshTerminalOverlayPermission()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -2202,6 +2220,14 @@ fun ChatScreen(vm: ChatViewModel) {
     val toolGroupsByStartId = remember(visibleMessages) {
         buildToolMessageGroups(visibleMessages).associateBy { it.startId }
     }
+    val latestAssistantMessageId = remember(visibleMessages) {
+        visibleMessages.lastOrNull { it.role == "assistant" }?.id
+    }
+    val assistantAvatarInfo = if (state.activeRoleCardId.isNotBlank()) {
+        state.currentRoleCardAvatar
+    } else {
+        state.currentAgentAvatar
+    }
     val selectedToolGroup = selectedToolGroupStartId?.let { toolGroupsByStartId[it] }
     val canLoadOlderHistory = hiddenRounds > 0
     val showHistoryStatus = visibleMessages.isNotEmpty()
@@ -2691,6 +2717,71 @@ fun ChatScreen(vm: ChatViewModel) {
         )
     }
 
+    if (showAvatarPickerSheet && avatarPickerTarget.isNotBlank()) {
+        val currentAvatar = when {
+            avatarPickerTarget.startsWith("role:") -> {
+                val id = avatarPickerTarget.removePrefix("role:")
+                state.roleCards.firstOrNull { it.id == id }?.let {
+                    UiAvatarInfo(
+                        presetKey = it.avatarPresetKey,
+                        imagePath = it.avatarImagePath,
+                        cropJson = it.avatarCropJson,
+                        fallbackSymbol = it.avatarSymbol.ifBlank { it.name.take(1) }
+                    )
+                } ?: state.currentRoleCardAvatar
+            }
+            avatarPickerTarget.startsWith("agent:") -> {
+                val id = avatarPickerTarget.removePrefix("agent:")
+                state.agentProfiles.firstOrNull { it.id == id }?.let {
+                    UiAvatarInfo(
+                        presetKey = it.avatarPresetKey,
+                        imagePath = it.avatarImagePath,
+                        cropJson = it.avatarCropJson,
+                        fallbackSymbol = it.name.take(1)
+                    )
+                } ?: state.currentAgentAvatar
+            }
+            else -> state.currentAgentAvatar
+        }
+        AvatarPickerSheet(
+            current = currentAvatar,
+            title = if (avatarPickerTarget.startsWith("role:")) "角色卡头像" else "智能体头像",
+            onDismiss = { showAvatarPickerSheet = false },
+            onPickPreset = { key ->
+                when {
+                    avatarPickerTarget.startsWith("role:") -> vm.setRoleCardAvatar(avatarPickerTarget.removePrefix("role:"), key)
+                    avatarPickerTarget.startsWith("agent:") -> vm.setAgentAvatar(avatarPickerTarget.removePrefix("agent:"), key)
+                }
+                showAvatarPickerSheet = false
+            },
+            onPickImage = {
+                showAvatarPickerSheet = false
+                avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            onClear = {
+                when {
+                    avatarPickerTarget.startsWith("role:") -> vm.setRoleCardAvatar(avatarPickerTarget.removePrefix("role:"), "")
+                    avatarPickerTarget.startsWith("agent:") -> vm.setAgentAvatar(avatarPickerTarget.removePrefix("agent:"), "")
+                }
+                showAvatarPickerSheet = false
+            }
+        )
+    }
+
+    pendingAvatarSourceUri?.let { sourceUri ->
+        AvatarCropSheet(
+            sourceUri = sourceUri,
+            onDismiss = { pendingAvatarSourceUri = null },
+            onConfirm = { crop ->
+                when {
+                    avatarPickerTarget.startsWith("role:") -> vm.saveRoleCardAvatarFromUri(avatarPickerTarget.removePrefix("role:"), sourceUri, crop)
+                    avatarPickerTarget.startsWith("agent:") -> vm.saveAgentAvatarFromUri(avatarPickerTarget.removePrefix("agent:"), sourceUri, crop)
+                }
+                pendingAvatarSourceUri = null
+            }
+        )
+    }
+
     if (showCompressionConfirm) {
         AlertDialog(
             onDismissRequest = { showCompressionConfirm = false },
@@ -2798,6 +2889,19 @@ fun ChatScreen(vm: ChatViewModel) {
             onClose = { showHeartbeatEditor = false }
         )
     }
+    if (showTerminalSheet) {
+        TerminalExpandedSheet(
+            state = state.terminalRuntime,
+            onDismiss = { showTerminalSheet = false },
+            onCancelTask = vm::cancelTerminalTask,
+            onClear = vm::clearTerminalOutput,
+            onInstallTools = vm::installTerminalDeveloperTools,
+            onForceClose = {
+                vm.forceCloseTerminal()
+                showTerminalSheet = false
+            }
+        )
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -2895,6 +2999,19 @@ fun ChatScreen(vm: ChatViewModel) {
                                     icon = Icons.Rounded.Search,
                                     contentDescription = "搜索聊天",
                                     onClick = { showChatSearch = !showChatSearch }
+                                )
+                                TerminalHeaderChip(
+                                    enabled = state.terminalRuntime.enabled,
+                                    hasPermission = state.terminalRuntime.overlayPermissionGranted,
+                                    onClick = {
+                                        if (state.terminalRuntime.enabled) {
+                                            showTerminalSheet = true
+                                        } else {
+                                            vm.showSettingsInfo("长按终端按钮可进入终端模式")
+                                        }
+                                    },
+                                    onLongClick = { vm.toggleTerminalMode() },
+                                    modifier = Modifier.widthIn(max = 150.dp)
                                 )
                                 Surface(
                                     modifier = Modifier
@@ -3048,21 +3165,21 @@ fun ChatScreen(vm: ChatViewModel) {
 
                     MainSurface.Settings, MainSurface.Skills, MainSurface.Tools, MainSurface.Memory, MainSurface.Agents, MainSurface.Theme -> TopAppBar(
                         colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            containerColor = Color.White,
+                            titleContentColor = ModernPanelTokens.Text,
+                            navigationIconContentColor = ModernPanelTokens.Text
                         ),
                         title = {
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.lgclaw_mark),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(30.dp),
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.lgclaw_mark),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(30.dp),
+                                        tint = ModernPanelTokens.Text
+                                    )
                                 Column {
                                     Text(
                                         text = when (mainSurface) { MainSurface.Skills -> "技能"; MainSurface.Tools -> "工具"; MainSurface.Memory -> "记忆"; MainSurface.Agents -> "智能体"; MainSurface.Theme -> "主题"; else -> settingsPageTitle },
@@ -3072,10 +3189,10 @@ fun ChatScreen(vm: ChatViewModel) {
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     (when (mainSurface) { MainSurface.Skills -> "技能商店与 @ 指令"; MainSurface.Tools -> "动态工作流工具"; MainSurface.Memory -> "本地记忆与压缩记忆"; MainSurface.Agents -> "会话绑定智能体"; MainSurface.Theme -> "字体、气泡与背景"; else -> settingsPageSubtitle }).takeIf { it.isNotBlank() }?.let { subtitle ->
-                                        Text(
+                                            Text(
                                             text = subtitle,
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+                                            color = ModernPanelTokens.Muted,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -3413,14 +3530,42 @@ fun ChatScreen(vm: ChatViewModel) {
                                             Column(
                                                 modifier = Modifier
                                             ) {
-                                                ChatBubbleHeader(
-                                                    label = if (isSystem) {
-                                                        tr("System", "")
-                                                    } else {
-                                                        state.agentDisplayName.ifBlank { "LGClaw" }
-                                                    },
-                                                    createdAt = message.createdAt
-                                                )
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                    verticalAlignment = Alignment.Top
+                                                ) {
+                                                    if (!isSystem) {
+                                                        AgentAvatar(
+                                                            info = assistantAvatarInfo,
+                                                            fallbackText = state.currentRoleCardName.take(1).ifBlank { state.agentDisplayName.take(2).ifBlank { "AI" } },
+                                                            modifier = Modifier.size(32.dp),
+                                                            onClick = { mainSurfaceName = MainSurface.Agents.name },
+                                                            onLongClick = {
+                                                                val target = state.activeRoleCardId.takeIf { it.isNotBlank() }?.let { "role:$it" }
+                                                                    ?: state.currentAgentBinding?.agentId?.takeIf { it.isNotBlank() }?.let { "agent:$it" }
+                                                                if (target != null) {
+                                                                    avatarPickerTarget = target
+                                                                    showAvatarPickerSheet = true
+                                                                }
+                                                            }
+                                                        )
+                                                    }
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        ChatBubbleHeader(
+                                                            label = if (isSystem) {
+                                                                tr("System", "")
+                                                            } else {
+                                                                state.currentRoleCardName.ifBlank { state.agentDisplayName.ifBlank { "LGClaw" } }
+                                                            },
+                                                            createdAt = message.createdAt,
+                                                            fillWidth = true
+                                                        )
+                                                        if (!isSystem && message.id == latestAssistantMessageId && state.inlineTraces.isNotEmpty()) {
+                                                            InlineTraceBar(traces = state.inlineTraces)
+                                                        }
+                                                    }
+                                                }
                                                 MarkdownText(
                                                     markdown = displayContent,
                                                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = messageFontSize, lineHeight = messageLineHeight, fontFamily = themeFontFamily),
@@ -3465,24 +3610,39 @@ fun ChatScreen(vm: ChatViewModel) {
                                 ) {
                                     Surface(
                                         color = Color.White,
-                                        shape = RoundedCornerShape(20.dp),
+                                        shape = RoundedCornerShape(18.dp),
                                         border = BorderStroke(1.dp, ModernPanelTokens.Border),
-                                        modifier = Modifier.widthIn(max = 320.dp)
+                                        modifier = Modifier.widthIn(max = 292.dp)
                                     ) {
                                         Row(
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
+                                            AgentAvatar(
+                                                info = assistantAvatarInfo,
+                                                fallbackText = state.currentRoleCardName.take(1).ifBlank { "AI" },
+                                                modifier = Modifier.size(30.dp),
+                                                onClick = { mainSurfaceName = MainSurface.Agents.name },
+                                                onLongClick = {
+                                                    val target = state.activeRoleCardId.takeIf { it.isNotBlank() }?.let { "role:$it" }
+                                                        ?: state.currentAgentBinding?.agentId?.takeIf { it.isNotBlank() }?.let { "agent:$it" }
+                                                    if (target != null) {
+                                                        avatarPickerTarget = target
+                                                        showAvatarPickerSheet = true
+                                                    }
+                                                }
+                                            )
                                             CircularProgressIndicator(
                                                 modifier = Modifier
-                                                    .size(14.dp)
-                                                    .padding(end = 2.dp),
+                                                    .size(13.dp)
+                                                    .padding(end = 1.dp),
                                                 strokeWidth = 2.dp
                                             )
-                                            Text(
-                                                uiLabel("Processing...")
-                                            )
+                                            Column(Modifier.weight(1f)) {
+                                                Text("正在思考", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                                InlineTraceBar(traces = state.inlineTraces)
+                                            }
                                         }
                                     }
                                 }
@@ -3499,6 +3659,24 @@ fun ChatScreen(vm: ChatViewModel) {
                     )
                     Box(
                         modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = 12.dp, bottom = chatInputBarClearance + 12.dp)
+                    ) {
+                        TerminalMiniOverlay(
+                            state = state.terminalRuntime,
+                            onExpand = { showTerminalSheet = true },
+                            onCancelTask = vm::cancelTerminalTask,
+                            onRequestOverlayPermission = {
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:${context.packageName}")
+                                )
+                                requestOverlayPermissionLauncher.launch(intent)
+                            }
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
                             .imePadding()
@@ -3513,8 +3691,19 @@ fun ChatScreen(vm: ChatViewModel) {
                             onExecutePendingPlan = vm::executePendingPlan,
                             onAddToPendingPlan = vm::addToPendingPlan,
                             onClearPendingPlan = vm::clearPendingPlan,
-                            onPickImages = { imagePicker.launch(arrayOf("image/*")) },
+                            onPickImages = {
+                                imagePicker.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
                             onPickAttachments = { attachmentPicker.launch(arrayOf("image/*", "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/*", "application/*")) },
+                            onRequestTerminalOverlayPermission = {
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:${context.packageName}")
+                                )
+                                requestOverlayPermissionLauncher.launch(intent)
+                            },
                             onRemoveAttachment = vm::removePendingAttachment
                         )
                     }
@@ -4444,17 +4633,17 @@ private fun ToolGroupDrawerRow(
         Surface(
             onClick = onOpen,
             modifier = Modifier
-                .widthIn(max = 330.dp)
+                .widthIn(max = 286.dp)
                 .then(modifier),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(16.dp),
             color = Color.White,
             contentColor = ModernPanelTokens.Text,
             border = BorderStroke(1.dp, ModernPanelTokens.Border),
             shadowElevation = 1.dp
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Surface(
@@ -4464,15 +4653,15 @@ private fun ToolGroupDrawerRow(
                 ) {
                     Text(
                         text = "${group.messages.size} 个工具",
-                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold
                     )
                 }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                     Text(
-                        text = "工具抽屉",
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = "工具",
+                        style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold,
                         color = ModernPanelTokens.Text
                     )
@@ -4485,7 +4674,7 @@ private fun ToolGroupDrawerRow(
                     )
                 }
                 Text(
-                    text = "查看",
+                    text = "展开",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = ModernPanelTokens.Accent
@@ -4515,7 +4704,7 @@ private fun ToolResultsDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color.White,
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(20.dp),
         title = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("工具抽屉", fontWeight = FontWeight.ExtraBold, color = ModernPanelTokens.Text)
@@ -4530,8 +4719,8 @@ private fun ToolResultsDialog(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 520.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .heightIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(group.messages, key = { it.id }) { message ->
                     val expanded = expandedToolMessages[message.id] == true

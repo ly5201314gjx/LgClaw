@@ -8,6 +8,7 @@ import com.lgclaw.config.CronConfig
 import com.lgclaw.cron.CronService
 import com.lgclaw.memory.MemoryStore
 import com.lgclaw.skills.SkillStore
+import com.lgclaw.terminal.TerminalController
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -18,11 +19,12 @@ fun createToolRegistry(
     agentRepository: AgentRepository? = null,
     novelRepository: NovelRepository? = null,
     currentSessionIdProvider: () -> String = { "local" },
+    terminalController: TerminalController? = null,
     onSetCronEnabled: (suspend (Boolean) -> Unit)? = null,
     onUpdateCronConfig: (suspend (CronConfigUpdate) -> CronConfig)? = null,
     defaultTimeoutMsProvider: () -> Long = { 60_000L }
 ): ToolRegistry {
-    val tools = buildCoreTools(context, memoryStore, agentRepository, novelRepository, currentSessionIdProvider)
+    val tools = buildCoreTools(context, memoryStore, agentRepository, novelRepository, currentSessionIdProvider, terminalController)
     if (cronService != null) {
         tools += createCronToolSet(cronService, onSetCronEnabled, onUpdateCronConfig)
     }
@@ -37,7 +39,8 @@ private fun buildCoreTools(
     memoryStore: MemoryStore,
     agentRepository: AgentRepository?,
     novelRepository: NovelRepository?,
-    currentSessionIdProvider: () -> String
+    currentSessionIdProvider: () -> String,
+    terminalController: TerminalController?
 ): MutableList<Tool> {
     val skillStore = SkillStore(context)
     val dynamicToolStore = DynamicToolStore(context)
@@ -64,6 +67,7 @@ private fun buildCoreTools(
         addAll(createDynamicPromptTools(dynamicToolStore))
         addAll(createFileToolSet(context, AppStoragePaths.storageRoot(context)))
         addAll(createMemoryToolSet(memoryStore, currentSessionIdProvider))
+        if (terminalController != null) addAll(createTerminalToolSet(terminalController, currentSessionIdProvider))
     }
 }
 

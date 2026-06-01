@@ -23,6 +23,8 @@ import com.lgclaw.runtime.AlwaysOnModeController
 import com.lgclaw.runtime.AlwaysOnHealthCheckWorker
 import com.lgclaw.agent.AgentLogStore
 import com.lgclaw.agents.AgentRepository
+import com.lgclaw.agents.AvatarCropSpec
+import com.lgclaw.agents.AvatarStore
 import com.lgclaw.agent.AgentLoop
 import com.lgclaw.agent.ContextBuilder
 import com.lgclaw.agent.MemoryConsolidator
@@ -91,6 +93,8 @@ import com.lgclaw.storage.SessionRepository
 import com.lgclaw.storage.entities.MessageEntity
 import com.lgclaw.storage.entities.SessionEntity
 import com.lgclaw.templates.TemplateStore
+import com.lgclaw.terminal.TerminalExecutionRequest
+import com.lgclaw.terminal.TerminalRuntimeState
 import com.lgclaw.tools.MessageTool
 import com.lgclaw.tools.McpHttpRuntime
 import com.lgclaw.tools.McpStatusTool
@@ -122,6 +126,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -166,6 +171,7 @@ class ChatViewModel(
     private val novelRepository = environment.novelRepository
     private val roleCardRepository = environment.roleCardRepository
     private val templateStore = environment.templateStore
+    private val terminalController = environment.terminalController
     private val heartbeatDocFile = environment.heartbeatDocFile
 
     private var currentSessionId: String =
@@ -345,6 +351,7 @@ class ChatViewModel(
         runtimeCoordinator.startGatewayIfEnabled()
         runtimeCoordinator.refreshAlwaysOnDiagnostics()
         appUpdateCoordinator.bootstrapAutomaticCheck()
+        observeTerminalRuntime()
         refreshExtensionPanels()
         refreshAgentPanels()
     }
@@ -602,7 +609,71 @@ class ChatViewModel(
             .replace("\\\\", "\\")
     }
     fun sendMessage(): Unit {
+        if (_uiState.value.terminalRuntime.enabled) {
+            sendTerminalInput()
+            return
+        }
         sessionCoordinator.sendMessage()
+    }
+
+    fun toggleTerminalMode() {
+        val sessionId = currentSessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID }
+        runCatching {
+            val enabled = terminalController.toggleTerminalMode(sessionId)
+            syncTerminalRuntimeState(terminalController.state.value)
+            val state = terminalController.state.value
+            val missing = state.missingExecutables.joinToString("、")
+            showSettingsInfo(
+                if (enabled) {
+                    if (missing.isBlank()) "终端模式已开启，可以直接运行命令"
+                    else "终端模式已开启；基础 shell 可用，开发工具可在终端面板里安装：$missing"
+                } else {
+                    "终端模式已退出"
+                }
+            )
+        }.onFailure { error ->
+            showSettingsInfo("终端模式切换失败：${error.message ?: error.javaClass.simpleName}")
+        }
+    }
+
+    fun refreshTerminalOverlayPermission() {
+        terminalController.refreshOverlayPermission(getApplication<Application>())
+        syncTerminalRuntimeState(terminalController.state.value)
+    }
+
+    fun cancelTerminalTask() {
+        runCatching {
+            val cancelled = terminalController.cancelActive(currentSessionId)
+            showSettingsInfo(if (cancelled) "已取消终端任务" else "当前没有正在运行的终端任务")
+        }.onFailure { error ->
+            showSettingsInfo("取消终端任务失败：${error.message ?: error.javaClass.simpleName}")
+        }
+    }
+
+    fun installTerminalDeveloperTools() {
+        runCatching {
+            terminalController.installDeveloperTools(currentSessionId)
+            syncTerminalRuntimeState(terminalController.state.value)
+            showSettingsInfo("已开始安装内嵌开发工具，终端面板会显示进度")
+        }.onFailure { error ->
+            showSettingsInfo("启动开发工具安装失败：${error.message ?: error.javaClass.simpleName}")
+        }
+    }
+
+    fun forceCloseTerminal() {
+        runCatching {
+            terminalController.forceClose(currentSessionId)
+            syncTerminalRuntimeState(terminalController.state.value)
+            showSettingsInfo("终端面板已强制关闭")
+        }.onFailure { error ->
+            showSettingsInfo("关闭终端面板失败：${error.message ?: error.javaClass.simpleName}")
+        }
+    }
+
+    fun clearTerminalOutput() {
+        terminalController.clearSessionOutput(currentSessionId)
+        syncTerminalRuntimeState(terminalController.state.value)
+        showSettingsInfo("已清空终端输出")
     }
 
     fun setPlanModeLevel(level: UiPlanModeLevel) {
@@ -727,6 +798,40 @@ class ChatViewModel(
         }
     }
 
+    private fun sendTerminalInput() {
+        val command = _uiState.value.input.trim()
+        if (command.isBlank()) {
+            showSettingsInfo("请先输入要运行的命令或代码")
+            return
+        }
+        if (!_uiState.value.terminalRuntime.enabled) {
+            showSettingsInfo("请先长按顶部按钮开启终端模式")
+            return
+        }
+        sessionCoordinator.onInputChanged("")
+        generatingJob?.cancel()
+        generatingJob = viewModelScope.launch {
+            try {
+                _uiState.update { it.copy(isGenerating = true) }
+                val sessionId = currentSessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID }
+                terminalController.runCommand(
+                    TerminalExecutionRequest(
+                        sessionId = sessionId,
+                        command = command,
+                        timeoutMs = 120_000L,
+                        label = "user"
+                    )
+                )
+            } catch (_: CancellationException) {
+                terminalController.cancelActive(currentSessionId)
+            } finally {
+                generatingJob = null
+                syncGeneratingState()
+                syncTerminalRuntimeState(terminalController.state.value)
+            }
+        }
+    }
+
     private fun buildUserTextWithAttachments(text: String, attachments: List<UiPendingAttachment>): String {
         if (attachments.isEmpty()) return text
         val hasImage = attachments.any { it.kind == UiMediaKind.Image }
@@ -756,6 +861,43 @@ class ChatViewModel(
             }
             appendLine("【附件说明结束】")
         }.trim()
+    }
+
+    private fun observeTerminalRuntime() {
+        viewModelScope.launch {
+            terminalController.state.collect { terminalState ->
+                syncTerminalRuntimeState(terminalState)
+            }
+        }
+    }
+
+    private fun syncTerminalRuntimeState(terminalState: TerminalRuntimeState) {
+        val sessionId = currentSessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID }
+        _uiState.update { state ->
+            state.copy(
+                terminalRuntime = UiTerminalRuntimeState(
+                    enabled = terminalState.terminalModeSessions.contains(sessionId),
+                    ready = terminalState.ready,
+                    overlayPermissionGranted = terminalState.overlayPermissionGranted,
+                    installing = terminalState.installing,
+                    installProgress = terminalState.installProgress,
+                    installMessage = terminalState.installMessage,
+                    toolchainRoot = terminalState.toolchainRoot,
+                    shellPath = terminalState.shellPath,
+                    installedExecutables = terminalState.installedExecutables.sorted(),
+                    missingExecutables = terminalState.missingExecutables.sorted(),
+                    activeCommand = terminalState.activeCommand,
+                    activeWorkspace = terminalState.activeWorkspace,
+                    activeJobId = terminalState.activeJobId,
+                    lastExitCode = terminalState.lastExitCode,
+                    lastError = terminalState.lastError,
+                    recentOutput = terminalState.recentOutput
+                        .filter { it.sessionId == sessionId }
+                        .takeLast(40)
+                        .map { UiTerminalLine(stream = it.stream, text = it.text, createdAt = it.createdAt) }
+                )
+            )
+        }
     }
 
     private fun startPlanningTurn(text: String, planMode: UiPlanModeLevel) {
@@ -847,6 +989,7 @@ class ChatViewModel(
         return listOf(
             "gpt-4o",
             "gpt-4.1",
+            "gpt-4.5",
             "gpt-5",
             "o1",
             "o3",
@@ -863,6 +1006,8 @@ class ChatViewModel(
             "gemini",
             "claude-3",
             "claude-4",
+            "claude-3.5",
+            "claude-3.7",
             "llava",
             "yi-vision",
             "glm-4v",
@@ -871,7 +1016,14 @@ class ChatViewModel(
             "seed-vision",
             "pixtral",
             "mistral-medium",
-            "mistral-large"
+            "mistral-large",
+            "gemini-1.5",
+            "gemini-2",
+            "qwen2-vl",
+            "qwen2.5-vl",
+            "qwen-vl",
+            "deepseek-vl",
+            "phi-4-multimodal"
         ).any { haystack.contains(it) }
     }
     private fun localPolishText(source: String): String {
@@ -994,6 +1146,9 @@ class ChatViewModel(
                 enabled = it.enabled,
                 defaultSkills = AgentRepository.parseJsonArray(it.defaultSkillNamesJson),
                 dynamicTools = AgentRepository.parseJsonArray(it.dynamicToolNamesJson),
+                avatarPresetKey = it.avatarPresetKey,
+                avatarImagePath = it.avatarImagePath,
+                avatarCropJson = it.avatarCropJson,
                 updatedAt = it.updatedAt
             )
         }
@@ -1004,6 +1159,9 @@ class ChatViewModel(
                 id = it.id,
                 name = it.name,
                 avatarSymbol = it.avatarSymbol,
+                avatarPresetKey = it.avatarPresetKey,
+                avatarImagePath = it.avatarImagePath,
+                avatarCropJson = it.avatarCropJson,
                 description = it.description,
                 persona = it.persona,
                 speakingStyle = it.speakingStyle,
@@ -1047,9 +1205,11 @@ class ChatViewModel(
                 agentProfiles = profiles,
                 currentAgentBinding = binding?.let { b -> UiSessionAgentBinding(b.sessionId, b.agentId, activeProjectId.ifBlank { null }, activeRoleCardId.ifBlank { null }) },
                 currentAgentName = currentName,
+                currentAgentAvatar = currentAgentAvatarFor(binding?.agentId, profiles),
                 roleCards = roleCards,
                 activeRoleCardId = activeRoleCardId,
                 currentRoleCardName = currentRoleCardName,
+                currentRoleCardAvatar = currentRoleCardAvatarFor(activeRoleCardId, roleCards),
                 novelProjects = projects,
                 activeNovelProjectId = activeProjectId,
                 novelChapters = chapters,
@@ -1293,6 +1453,48 @@ class ChatViewModel(
         }
     }
 
+    fun setAgentAvatar(agentId: String, presetKey: String, imagePath: String = "", cropJson: String = "") {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                agentRepository.updateAvatar(agentId, presetKey, imagePath, cropJson)
+                refreshAgentPanelsNow()
+            }.onSuccess { showSettingsInfo("智能体头像已更新") }
+                .onFailure { showSettingsInfo("智能体头像更新失败：${it.message ?: it.javaClass.simpleName}") }
+        }
+    }
+
+    fun saveAgentAvatarFromUri(agentId: String, uri: Uri, crop: AvatarCropSpec) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val file = AvatarStore.saveCroppedAvatar(getApplication<Application>(), "agents", agentId, uri, crop)
+                agentRepository.updateAvatar(agentId, "custom", file.absolutePath, AvatarStore.cropSpecJson(crop))
+                refreshAgentPanelsNow()
+            }.onSuccess { showSettingsInfo("智能体头像已保存") }
+                .onFailure { showSettingsInfo("智能体头像保存失败：${it.message ?: it.javaClass.simpleName}") }
+        }
+    }
+
+    fun setRoleCardAvatar(roleCardId: String, presetKey: String, imagePath: String = "", cropJson: String = "") {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                roleCardRepository.updateAvatar(roleCardId, presetKey, imagePath, cropJson)
+                refreshAgentPanelsNow()
+            }.onSuccess { showSettingsInfo("角色卡头像已更新") }
+                .onFailure { showSettingsInfo("角色卡头像更新失败：${it.message ?: it.javaClass.simpleName}") }
+        }
+    }
+
+    fun saveRoleCardAvatarFromUri(roleCardId: String, uri: Uri, crop: AvatarCropSpec) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val file = AvatarStore.saveCroppedAvatar(getApplication<Application>(), "role_cards", roleCardId, uri, crop)
+                roleCardRepository.updateAvatar(roleCardId, "custom", file.absolutePath, AvatarStore.cropSpecJson(crop))
+                refreshAgentPanelsNow()
+            }.onSuccess { showSettingsInfo("角色卡头像已保存") }
+                .onFailure { showSettingsInfo("角色卡头像保存失败：${it.message ?: it.javaClass.simpleName}") }
+        }
+    }
+
     fun bindRoleCardToCurrentSession(roleCardId: String?) {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
@@ -1440,11 +1642,18 @@ class ChatViewModel(
         val hadActiveJob = generatingJob != null
         generatingJob?.cancel()
         generatingJob = null
+        val cancelledTerminal = terminalController.cancelActive(currentSessionId)
         synchronized(gatewayProcessingSessions) {
             gatewayProcessingSessions.remove(currentSessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID })
         }
         _uiState.update { it.copy(isPlanning = false, isGenerating = false) }
-        showSettingsInfo(if (hadActiveJob) "已暂停当前任务，可继续编辑或重新发送" else "当前没有正在运行的任务")
+        showSettingsInfo(
+            when {
+                cancelledTerminal -> "已暂停终端任务，可继续编辑或重新运行"
+                hadActiveJob -> "已暂停当前任务，可继续编辑或重新发送"
+                else -> "当前没有正在运行的任务"
+            }
+        )
     }
 
     fun openSettings() {
@@ -2353,6 +2562,7 @@ class ChatViewModel(
     fun selectSession(sessionId: String): Unit {
         sessionCoordinator.selectSession(sessionId)
         refreshAgentPanels()
+        syncTerminalRuntimeState(terminalController.state.value)
     }
 
     fun createSession(displayName: String): Unit {
@@ -4974,6 +5184,39 @@ class ChatViewModel(
         refreshConversationMetrics(freshMessages)
     }
 
+    fun updateInlineTrace(sessionId: String, title: String, detail: String) {
+        val trace = UiInlineTrace(
+            id = UUID.randomUUID().toString(),
+            sessionId = sessionId,
+            title = title,
+            detail = detail,
+            createdAt = System.currentTimeMillis()
+        )
+        _uiState.update { state ->
+            state.copy(inlineTraces = (state.inlineTraces + trace).takeLast(24))
+        }
+    }
+
+    private fun currentAgentAvatarFor(agentId: String?, profiles: List<UiAgentProfile>): UiAvatarInfo {
+        val profile = agentId?.let { id -> profiles.firstOrNull { it.id == id } } ?: return UiAvatarInfo(fallbackSymbol = "AI")
+        return UiAvatarInfo(
+            presetKey = profile.avatarPresetKey,
+            imagePath = profile.avatarImagePath,
+            cropJson = profile.avatarCropJson,
+            fallbackSymbol = profile.name.take(1).ifBlank { "AI" }
+        )
+    }
+
+    private fun currentRoleCardAvatarFor(roleCardId: String, cards: List<UiRoleCard>): UiAvatarInfo {
+        val card = cards.firstOrNull { it.id == roleCardId } ?: return UiAvatarInfo(fallbackSymbol = "角")
+        return UiAvatarInfo(
+            presetKey = card.avatarPresetKey,
+            imagePath = card.avatarImagePath,
+            cropJson = card.avatarCropJson,
+            fallbackSymbol = card.avatarSymbol.ifBlank { card.name.take(1) }
+        )
+    }
+
     private suspend fun triggerHeartbeatViaActiveRuntime(): String {
         if (shouldDelegateRemoteGatewayToAlwaysOnService()) {
             val result = AlwaysOnModeController.triggerHeartbeatNow()
@@ -5017,6 +5260,23 @@ class ChatViewModel(
                     .map { it.trim() }
                     .filter { it.isNotBlank() }
                     .toSet()
+                _uiState.update { state ->
+                    val currentSession = state.currentSessionId.trim()
+                    state.copy(
+                        inlineTraces = status.inlineTraces
+                            .filter { it.sessionId == currentSession }
+                            .takeLast(8)
+                            .mapIndexed { index, trace ->
+                                UiInlineTrace(
+                                    id = "${trace.createdAt}-$index",
+                                    sessionId = trace.sessionId,
+                                    title = trace.title,
+                                    detail = trace.detail,
+                                    createdAt = trace.createdAt
+                                )
+                            }
+                    )
+                }
                 updateObservedGatewayProcessingSessions()
             }
         }

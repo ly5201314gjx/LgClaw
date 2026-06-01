@@ -41,7 +41,7 @@ import java.util.UUID
         NovelAnalysisEntity::class,
         RoleCardEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -67,6 +67,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(MIGRATION_2_3)
                     .addMigrations(MIGRATION_3_4)
                     .addMigrations(MIGRATION_4_5)
+                    .addMigrations(MIGRATION_5_6)
                     .build()
                     .also { INSTANCE = it }
             }
@@ -291,6 +292,40 @@ abstract class AppDatabase : RoomDatabase() {
                 }
                 if ("activeRoleCardId" !in columns) {
                     db.execSQL("ALTER TABLE session_agent_bindings ADD COLUMN activeRoleCardId TEXT")
+                }
+            }
+        }
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val agentColumns = tableColumns(db, "agent_profiles")
+                if ("avatarPresetKey" !in agentColumns) {
+                    db.execSQL("ALTER TABLE agent_profiles ADD COLUMN avatarPresetKey TEXT NOT NULL DEFAULT ''")
+                }
+                if ("avatarImagePath" !in agentColumns) {
+                    db.execSQL("ALTER TABLE agent_profiles ADD COLUMN avatarImagePath TEXT NOT NULL DEFAULT ''")
+                }
+                if ("avatarCropJson" !in agentColumns) {
+                    db.execSQL("ALTER TABLE agent_profiles ADD COLUMN avatarCropJson TEXT NOT NULL DEFAULT ''")
+                }
+
+                val roleColumns = tableColumns(db, "role_cards")
+                if ("avatarPresetKey" !in roleColumns) {
+                    db.execSQL("ALTER TABLE role_cards ADD COLUMN avatarPresetKey TEXT NOT NULL DEFAULT ''")
+                }
+                if ("avatarImagePath" !in roleColumns) {
+                    db.execSQL("ALTER TABLE role_cards ADD COLUMN avatarImagePath TEXT NOT NULL DEFAULT ''")
+                }
+                if ("avatarCropJson" !in roleColumns) {
+                    db.execSQL("ALTER TABLE role_cards ADD COLUMN avatarCropJson TEXT NOT NULL DEFAULT ''")
+                }
+            }
+        }
+
+        private fun tableColumns(db: SupportSQLiteDatabase, table: String): Set<String> {
+            return db.query("PRAGMA table_info($table)").use { cursor ->
+                buildSet {
+                    val nameIndex = cursor.getColumnIndex("name")
+                    while (cursor.moveToNext()) add(cursor.getString(nameIndex))
                 }
             }
         }

@@ -15,6 +15,7 @@ import com.lgclaw.novel.NovelRepository
 import com.lgclaw.skills.SkillStore
 import com.lgclaw.tools.DynamicToolStore
 import com.lgclaw.providers.ProviderResolutionStore
+import com.lgclaw.terminal.TerminalController
 import com.lgclaw.storage.AppDatabase
 import com.lgclaw.storage.MessageRepository
 import com.lgclaw.storage.SessionRepository
@@ -49,6 +50,7 @@ internal class ChatViewModelEnvironment(app: Application) {
     val skillStore: SkillStore = SkillStore(app)
     val dynamicToolStore: DynamicToolStore = DynamicToolStore(app)
     val templateStore: TemplateStore = TemplateStore(app)
+    val terminalController: TerminalController = TerminalController.apply { initialize(app) }
     val heartbeatDocFile: File = AppStoragePaths.heartbeatDocFile(app)
     val uiJson: Json = Json {
         ignoreUnknownKeys = true

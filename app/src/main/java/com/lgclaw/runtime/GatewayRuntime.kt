@@ -55,6 +55,7 @@ import com.lgclaw.storage.MessageRepository
 import com.lgclaw.storage.SessionRepository
 import com.lgclaw.storage.entities.SessionEntity
 import com.lgclaw.templates.TemplateStore
+import com.lgclaw.terminal.TerminalController
 import com.lgclaw.tools.ChannelsGetTool
 import com.lgclaw.tools.ChannelsSetTool
 import com.lgclaw.tools.CronConfigUpdate
@@ -92,7 +93,8 @@ data class GatewayRuntimeState(
     val gatewayRunning: Boolean = false,
     val activeAdapterCount: Int = 0,
     val lastError: String = "",
-    val processingSessionIds: Set<String> = emptySet()
+    val processingSessionIds: Set<String> = emptySet(),
+    val inlineTraces: List<RuntimeTrace> = emptyList()
 )
 
 class GatewayRuntime(
@@ -119,6 +121,7 @@ class GatewayRuntime(
     private val providerFactory = LlmProviderFactory()
     private val skillsLoader = SkillsLoader(app)
     private val templateStore = TemplateStore(app)
+    private val terminalController = TerminalController.apply { initialize(app) }
     private val toolCallParser = ToolCallParser()
     private val heartbeatDocFile = AppStoragePaths.heartbeatDocFile(app)
     private val heartbeatService = HeartbeatService(app)
@@ -140,6 +143,7 @@ class GatewayRuntime(
                 ?.ifBlank { null }
                 ?: ambientSessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID }
         },
+        terminalController = terminalController,
         onSetCronEnabled = { enabled -> setCronEnabledFromTool(enabled) },
         onUpdateCronConfig = { update -> persistCronSettings(update) },
         defaultTimeoutMsProvider = {
@@ -187,13 +191,15 @@ class GatewayRuntime(
         toolResultMaxCharsProvider = { configStore.getConfig().toolResultMaxChars },
         memoryWindowProvider = { configStore.getConfig().memoryConsolidationWindow },
         compressionThresholdKProvider = { configStore.getConfig().compressionThresholdK },
-        maxContextMessagesProvider = { configStore.getConfig().contextMessages }
+        maxContextMessagesProvider = { configStore.getConfig().contextMessages },
+        traceReporter = { sessionId, title, detail -> recordInlineTrace(sessionId, title, detail) }
     )
     private val gatewayBus = MessageBus()
     private var gatewayOrchestrator: GatewayOrchestrator? = null
     private val mcpRuntimes = mutableListOf<McpHttpRuntime>()
     private var mcpServerStatuses: Map<String, RuntimeMcpServerStatus> = emptyMap()
     private val gatewayProcessingSessions = mutableSetOf<String>()
+    private val gatewayInlineTraces = mutableListOf<RuntimeTrace>()
     @Volatile
     private var runtimeState = GatewayRuntimeState()
     @Volatile
@@ -1680,10 +1686,26 @@ class GatewayRuntime(
             lastError = lastError,
             processingSessionIds = synchronized(gatewayProcessingSessions) {
                 gatewayProcessingSessions.toSet()
-            }
+            },
+            inlineTraces = synchronized(gatewayInlineTraces) { gatewayInlineTraces.toList() }
         )
         runtimeState = next
         onStateChanged(next)
+    }
+
+    private fun recordInlineTrace(sessionId: String, title: String, detail: String) {
+        synchronized(gatewayInlineTraces) {
+            gatewayInlineTraces += RuntimeTrace(
+                sessionId = sessionId.trim(),
+                title = title.trim().ifBlank { "状态" },
+                detail = detail.trim(),
+                createdAt = System.currentTimeMillis()
+            )
+            while (gatewayInlineTraces.size > 48) {
+                gatewayInlineTraces.removeAt(0)
+            }
+        }
+        updateState()
     }
 
     private fun validateMcpEndpointUrl(url: String) {

@@ -5,6 +5,7 @@ import com.lgclaw.agents.AgentRepository
 import com.lgclaw.config.AppLimits
 import com.lgclaw.memory.MemoryStore
 import com.lgclaw.memory.CompressedMemoryStore
+import com.lgclaw.providers.ChatMessage
 import com.lgclaw.providers.LlmProvider
 import com.lgclaw.providers.LlmUsage
 import com.lgclaw.providers.ToolCall
@@ -45,6 +46,7 @@ class AgentLoop(
     private val agentRepository: AgentRepository? = null,
     private val processLogger: ((String) -> Unit)? = null,
     private val usageReporter: ((LlmUsage) -> Unit)? = null,
+    private val traceReporter: ((String, String, String) -> Unit)? = null,
     private val maxRoundsProvider: () -> Int = { AppLimits.DEFAULT_MAX_TOOL_ROUNDS },
     private val toolResultMaxCharsProvider: () -> Int = { AppLimits.DEFAULT_TOOL_RESULT_MAX_CHARS },
     private val memoryWindowProvider: () -> Int = { AppLimits.DEFAULT_MEMORY_CONSOLIDATION_WINDOW },
@@ -68,6 +70,7 @@ class AgentLoop(
         var cancelled = false
         try {
             val normalizedRole = inputRole.trim().ifBlank { "user" }
+            reportTrace(sessionId, "准备上下文", "正在整理历史消息、技能、工具和记忆。")
             if (appendInputMessage) {
                 val appendedUserMessageId = repository.appendMessage(
                     sessionId = sessionId,
@@ -100,11 +103,22 @@ class AgentLoop(
                 .coerceIn(AppLimits.MIN_TOOL_RESULT_MAX_CHARS, AppLimits.MAX_TOOL_RESULT_MAX_CHARS)
             if (activeSkillNames.isNotEmpty()) {
                 logInfo("active skills selected: ${activeSkillNames.joinToString(",")}")
+                reportTrace(sessionId, "读取技能", activeSkillNames.joinToString("、").take(120))
             }
+            refreshRuntimeTools?.invoke()
+            val initialToolSpec = toolRegistry.toToolSpecList()
+            val executionPlanContext = createExecutionPlanContext(
+                sessionId = sessionId,
+                userTask = newUserText,
+                recentUserContext = recentUserContext,
+                activeSkillNames = activeSkillNames,
+                toolSpec = initialToolSpec
+            )
 
             for (round in 1..maxRounds) {
                 refreshRuntimeTools?.invoke()
                 logInfo("round $round start")
+                reportTrace(sessionId, "请求模型", "第 $round 轮，工具数=${toolRegistry.toToolSpecList().size}")
                 val toolSpec = toolRegistry.toToolSpecList()
 
                 val turn = requestNonStreamTurn(
@@ -113,7 +127,8 @@ class AgentLoop(
                     activeSkillsContent = activeSkillsContent,
                     skillsSummary = skillsSummary,
                     systemPolicyTemplate = systemPolicyTemplate,
-                    agentProfileContext = runtimeAgentContext?.prompt.orEmpty()
+                    agentProfileContext = runtimeAgentContext?.prompt.orEmpty(),
+                    executionPlanContext = executionPlanContext
                 ) ?: run {
                     logWarn("non-stream turn failed; stop loop")
                     return@withContext
@@ -122,11 +137,13 @@ class AgentLoop(
                 val parsedToolCalls = turn.parsedToolCalls
                 if (parsedToolCalls.isEmpty()) {
                     logInfo("no tool calls; end loop")
+                    reportTrace(sessionId, "模型输出", "本轮没有继续调用工具。")
                     return@withContext
                 }
 
                 for (call in parsedToolCalls) {
                     logInfo("tool call: ${call.name}, id=${call.id}")
+                    reportTrace(sessionId, "使用工具", call.name)
                     val result = if (blockedTools.contains(call.name)) {
                         ToolResult(
                             toolCallId = call.id,
@@ -137,6 +154,7 @@ class AgentLoop(
                         toolRegistry.execute(call)
                     }
                     val safeContent = truncateToolResult(result.content, toolResultMaxChars)
+                    reportTrace(sessionId, "工具结果", "${call.name} · ${safeContent.take(80)}")
                     repository.appendToolMessage(
                         sessionId = sessionId,
                         content = safeContent,
@@ -162,6 +180,7 @@ class AgentLoop(
             throw ce
         } catch (t: Throwable) {
             logError("round failed", t)
+            reportTrace(sessionId, "执行失败", t.message ?: t.javaClass.simpleName)
             repository.appendAssistantMessage(
                 sessionId,
                 "Error: ${t.message ?: t.javaClass.simpleName}"
@@ -182,13 +201,77 @@ class AgentLoop(
         }
     }
 
+    private suspend fun createExecutionPlanContext(
+        sessionId: String,
+        userTask: String,
+        recentUserContext: String,
+        activeSkillNames: List<String>,
+        toolSpec: List<ToolSpec>
+    ): String {
+        if (userTask.length < 18 && !looksLikeToolTask(userTask)) return ""
+        reportTrace(sessionId, "生成计划", "正在分析任务、技能、工具和终端调用顺序")
+        val toolSummary = toolSpec
+            .take(80)
+            .joinToString("\n") { "- ${it.name}: ${it.description.take(120)}" }
+        val skillSummary = activeSkillNames.joinToString("、").ifBlank { "无" }
+        val response = runCatching {
+            llmProviderFactory().chat(
+                messages = listOf(
+                    ChatMessage(
+                        role = "system",
+                        content = """
+                            你是 LGClaw 的任务调度器，采用 Codex 风格的计划-执行-验证闭环。
+                            只输出简洁可执行计划，不输出隐藏思维链，不直接回答用户。
+                            计划必须包含：目标、步骤、要用的技能、要用的工具、是否需要终端、完成检查。
+                            如果任务很简单，输出“无需工具，直接回答”。
+                        """.trimIndent()
+                    ),
+                    ChatMessage(
+                        role = "user",
+                        content = """
+                            用户当前任务：
+                            $userTask
+
+                            最近上下文：
+                            $recentUserContext
+
+                            已选技能：
+                            $skillSummary
+
+                            可用工具：
+                            $toolSummary
+                        """.trimIndent()
+                    )
+                ),
+                toolsSpec = emptyList()
+            )
+        }.onFailure { error ->
+            logWarn("execution plan generation failed: ${error.message ?: error.javaClass.simpleName}")
+            reportTrace(sessionId, "计划降级", "计划生成失败，将直接进入工具循环")
+        }.getOrNull() ?: return ""
+        response.usage?.let { usageReporter?.invoke(it) }
+        val plan = response.assistant.content.trim().take(4000)
+        if (plan.isBlank()) return ""
+        reportTrace(sessionId, "计划就绪", plan.lines().firstOrNull().orEmpty().take(100))
+        return plan
+    }
+
+    private fun looksLikeToolTask(text: String): Boolean {
+        val normalized = text.lowercase()
+        return listOf(
+            "运行", "终端", "代码", "文件", "搜索", "工具", "技能",
+            "node", "npm", "python", "git", "ssh", "uv", "build", "test"
+        ).any { normalized.contains(it) }
+    }
+
     private suspend fun requestNonStreamTurn(
         sessionId: String,
         toolSpec: List<ToolSpec>,
         activeSkillsContent: String,
         skillsSummary: String,
         systemPolicyTemplate: String?,
-        agentProfileContext: String
+        agentProfileContext: String,
+        executionPlanContext: String
     ): AssistantTurn? {
         val history = repository.getMessages(sessionId)
         val longTermMemory = memoryStore.readLongTerm()
@@ -207,7 +290,8 @@ class AgentLoop(
             activeSkillsContent = activeSkillsContent,
             skillsSummary = skillsSummary,
             systemPolicyTemplate = systemPolicyTemplate,
-                    agentProfileContext = agentProfileContext
+            agentProfileContext = agentProfileContext,
+            executionPlanContext = executionPlanContext
         )
         val response = try {
             llmProviderFactory().chat(llmMessages, toolSpec)
@@ -259,6 +343,10 @@ class AgentLoop(
     private fun truncateToolResult(raw: String, maxChars: Int): String {
         if (raw.length <= maxChars) return raw
         return raw.take(maxChars) + "\n...[truncated]"
+    }
+
+    private fun reportTrace(sessionId: String, title: String, detail: String) {
+        traceReporter?.invoke(sessionId, title, detail)
     }
 
     private fun buildBootstrapPolicyTemplate(): String? {

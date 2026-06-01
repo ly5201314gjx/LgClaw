@@ -56,6 +56,9 @@ class AgentRepository(
                 enabled = old?.enabled ?: true,
                 defaultSkillNamesJson = toJsonArray(seed.defaultSkills),
                 dynamicToolNamesJson = toJsonArray(seed.dynamicTools),
+                avatarPresetKey = old?.avatarPresetKey ?: defaultAvatarPresetFor(seed.id),
+                avatarImagePath = old?.avatarImagePath.orEmpty(),
+                avatarCropJson = old?.avatarCropJson.orEmpty(),
                 createdAt = old?.createdAt ?: now,
                 updatedAt = now
             )
@@ -97,6 +100,9 @@ class AgentRepository(
             enabled = enabled,
             defaultSkillNamesJson = toJsonArray(defaultSkills.map(::sanitizeCommandName)),
             dynamicToolNamesJson = toJsonArray(dynamicTools.map(::sanitizeCommandName)),
+            avatarPresetKey = old?.avatarPresetKey.orEmpty(),
+            avatarImagePath = old?.avatarImagePath.orEmpty(),
+            avatarCropJson = old?.avatarCropJson.orEmpty(),
             createdAt = old?.createdAt ?: now,
             updatedAt = now
         )
@@ -110,6 +116,23 @@ class AgentRepository(
             dao.clearAgentBindings(cleanId, System.currentTimeMillis())
         }
         dao.setProfileEnabled(cleanId, enabled, System.currentTimeMillis())
+    }
+
+    suspend fun updateAvatar(
+        id: String,
+        presetKey: String,
+        imagePath: String = "",
+        cropJson: String = ""
+    ) = withContext(Dispatchers.IO) {
+        val cleanId = id.trim().ifBlank { throw IllegalArgumentException("智能体编号不能为空") }
+        dao.getProfile(cleanId) ?: throw IllegalArgumentException("智能体不存在")
+        dao.updateProfileAvatar(
+            id = cleanId,
+            presetKey = presetKey.trim(),
+            imagePath = imagePath.trim(),
+            cropJson = cropJson.trim(),
+            updatedAt = System.currentTimeMillis()
+        )
     }
 
     suspend fun updateProfile(draft: AgentProfileDraft): AgentProfileEntity = withContext(Dispatchers.IO) {
@@ -130,6 +153,9 @@ class AgentRepository(
             enabled = draft.enabled,
             defaultSkillNamesJson = toJsonArray(draft.defaultSkills.map(::sanitizeCommandName)),
             dynamicToolNamesJson = toJsonArray(draft.dynamicTools.map(::sanitizeCommandName)),
+            avatarPresetKey = old.avatarPresetKey,
+            avatarImagePath = old.avatarImagePath,
+            avatarCropJson = old.avatarCropJson,
             createdAt = old.createdAt,
             updatedAt = now
         )
@@ -352,6 +378,12 @@ class AgentRepository(
 
         
         fun isBuiltin(id: String): Boolean = id == NOVEL_AGENT_ID || id == BUILDER_AGENT_ID
+
+        fun defaultAvatarPresetFor(id: String): String = when (id) {
+            NOVEL_AGENT_ID -> "story_muse"
+            BUILDER_AGENT_ID -> "builder_blue"
+            else -> "lgclaw_soft"
+        }
 
         private fun slug(raw: String): String = raw.lowercase(Locale.US)
             .replace(Regex("[^a-z0-9\\p{IsHan}]+"), "-")
