@@ -10,7 +10,7 @@
 [![Android](https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](#)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Compose-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](#)
 [![Local First](https://img.shields.io/badge/Local--First-Agent%20Runtime-0A84FF?style=for-the-badge)](#)
-[![Download APK](https://img.shields.io/badge/Download-v0.1.8%20APK-f39c12?style=for-the-badge&logo=android&logoColor=white)](https://github.com/ly5201314gjx/LgClaw/releases/latest/download/LGClaw-Pro-debug.apk)
+[![Download APK](https://img.shields.io/badge/Download-v0.1.9%20APK-f39c12?style=for-the-badge&logo=android&logoColor=white)](https://github.com/ly5201314gjx/LgClaw/releases/latest/download/LGClaw-Pro-debug.apk)
 
 </div>
 
@@ -24,11 +24,11 @@
 
 ## Latest Update
 
-**v0.1.8** turns LGClaw into a more serious mobile agent workstation:
+**v0.1.9** makes the embedded terminal far more dependable:
 
-- Added an embedded arm64 terminal runtime with offline Node.js/npm, Python/pip/uv, Git, SSH, shell tools, and isolated per-session workspaces.
-- Hardened terminal mode so long-press, expand, cancel, and force-close stay stable during first-run initialization.
-- Strengthened the Codex-style agent loop: the model plans, chooses skills/tools/terminal steps, reads results, fixes errors, and verifies before answering.
+- The APK now ships the full arm64 terminal assets and uses a terminal-compatible Android target so Node.js/npm, Python/pip/uv, Git, SSH, and shell tools can run from LGClaw's private runtime.
+- Terminal launch failures are caught and shown as Chinese status output instead of crashing the chat page.
+- The mini terminal monitor close button now hides the floating view without killing the active task.
 - The latest install package is attached to [GitHub Releases](https://github.com/ly5201314gjx/LgClaw/releases/latest).
 
 See the full [CHANGELOG](./CHANGELOG.md).

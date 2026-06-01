@@ -342,6 +342,7 @@ fun ChatScreen(vm: ChatViewModel) {
     var showCompressionConfirm by rememberSaveable { mutableStateOf(false) }
     var showCompressionCancelConfirm by rememberSaveable { mutableStateOf(false) }
     var showTerminalSheet by rememberSaveable { mutableStateOf(false) }
+    var showTerminalMiniOverlay by rememberSaveable { mutableStateOf(true) }
     var showHeartbeatEditor by rememberSaveable { mutableStateOf(false) }
     var roleCardMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var showQuickRoleCardDialog by rememberSaveable { mutableStateOf(false) }
@@ -2543,6 +2544,20 @@ fun ChatScreen(vm: ChatViewModel) {
     }
 
     LaunchedEffect(
+        state.terminalRuntime.activeJobId,
+        state.terminalRuntime.activeCommand,
+        state.terminalRuntime.installing
+    ) {
+        if (
+            state.terminalRuntime.activeJobId.isNotBlank() ||
+            state.terminalRuntime.activeCommand.isNotBlank() ||
+            state.terminalRuntime.installing
+        ) {
+            showTerminalMiniOverlay = true
+        }
+    }
+
+    LaunchedEffect(
         pendingHistoryRestore,
         visibleMessages.size,
         headerItemCount
@@ -3657,23 +3672,26 @@ fun ChatScreen(vm: ChatViewModel) {
                         chatInputBarClearance = chatInputBarClearance,
                         onScrollToLatest = scrollToLatestAction
                     )
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(start = 12.dp, bottom = chatInputBarClearance + 12.dp)
-                    ) {
-                        TerminalMiniOverlay(
-                            state = state.terminalRuntime,
-                            onExpand = { showTerminalSheet = true },
-                            onCancelTask = vm::cancelTerminalTask,
-                            onRequestOverlayPermission = {
-                                val intent = Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:${context.packageName}")
-                                )
-                                requestOverlayPermissionLauncher.launch(intent)
-                            }
-                        )
+                    if (showTerminalMiniOverlay) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(start = 12.dp, bottom = chatInputBarClearance + 12.dp)
+                        ) {
+                            TerminalMiniOverlay(
+                                state = state.terminalRuntime,
+                                onExpand = { showTerminalSheet = true },
+                                onCancelTask = vm::cancelTerminalTask,
+                                onDismissOverlay = { showTerminalMiniOverlay = false },
+                                onRequestOverlayPermission = {
+                                    val intent = Intent(
+                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        Uri.parse("package:${context.packageName}")
+                                    )
+                                    requestOverlayPermissionLauncher.launch(intent)
+                                }
+                            )
+                        }
                     }
                     Box(
                         modifier = Modifier

@@ -147,6 +147,7 @@ internal fun TerminalMiniOverlay(
     state: UiTerminalRuntimeState,
     onExpand: () -> Unit,
     onCancelTask: () -> Unit,
+    onDismissOverlay: () -> Unit,
     onRequestOverlayPermission: () -> Unit
 ) {
     if (state.recentOutput.isEmpty() && state.activeCommand.isBlank() && !state.enabled) return
@@ -160,25 +161,32 @@ internal fun TerminalMiniOverlay(
     ) {
         Column(
             modifier = Modifier
-                .combinedClickable(onClick = onExpand, onLongClick = onExpand)
                 .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Rounded.Terminal, contentDescription = null, tint = Color(0xFF3977F6))
-                Text(
-                    text = if (state.activeCommand.isNotBlank()) state.activeCommand.take(24) else "终端运行中",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = onCancelTask, modifier = Modifier.padding(0.dp)) {
-                    Icon(Icons.Rounded.Close, contentDescription = "暂停终端")
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .combinedClickable(onClick = onExpand, onLongClick = onExpand),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Rounded.Terminal, contentDescription = null, tint = Color(0xFF3977F6))
+                    Text(
+                        text = if (state.activeCommand.isNotBlank()) state.activeCommand.take(24) else "终端运行中",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                IconButton(onClick = onDismissOverlay, modifier = Modifier.padding(0.dp)) {
+                    Icon(Icons.Rounded.Close, contentDescription = "关闭浮窗")
                 }
             }
             if (!state.overlayPermissionGranted) {
@@ -201,6 +209,7 @@ internal fun TerminalMiniOverlay(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .combinedClickable(onClick = onExpand, onLongClick = onExpand)
                         .heightIn(max = 96.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(Color(0xFFF7F8FA))
@@ -218,7 +227,12 @@ internal fun TerminalMiniOverlay(
                     }
                 }
             } else {
-                Text("长按可展开终端面板", style = MaterialTheme.typography.labelSmall, color = Color(0xFF7B8494))
+                Text(
+                    "长按可展开终端面板",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF7B8494),
+                    modifier = Modifier.combinedClickable(onClick = onExpand, onLongClick = onExpand)
+                )
             }
         }
     }

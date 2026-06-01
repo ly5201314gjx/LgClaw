@@ -16,7 +16,7 @@ class TerminalToolchainManager(
     private val bootstrapTools = listOf("sh", "bash", "pkg", "apt", "tar")
     private val developerTools = listOf("node", "npm", "python", "pip", "git", "ssh", "uv")
     private val requiredTools = bootstrapTools + developerTools
-    private val bootstrapVersion = "lgclaw-terminal-v6-rootfs"
+    private val bootstrapVersion = "lgclaw-terminal-v7-rootfs"
     private val rootfsBundleName = "rootfs.zip"
     private val offlineDebBundleName = "offline-debs.zip"
     private val oldTermuxRoot = "/data/data/com.termux"

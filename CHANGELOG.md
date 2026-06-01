@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.1.9 - 2026-06-01
+
+### Fixed
+
+- Reworked the embedded terminal runtime packaging so the bundled Termux-style toolchain can execute from LGClaw's private storage on Android.
+- Added a safe terminal launch fallback: if the embedded shell is blocked, LGClaw reports the failure in Chinese instead of crashing the chat page.
+- Fixed the mini terminal overlay close button so it hides the floating monitor without cancelling the running task.
+
+### Verified
+
+- Debug APK rebuilt as `LGClaw-Pro-debug.apk`.
+- Confirmed APK contains `rootfs.zip`, `offline-debs.zip`, and `toolchain.zip`.
+- `assembleDebug testDebugUnitTest lintDebug` passed.
+
 ## v0.1.8 - 2026-06-01
 
 ### Added

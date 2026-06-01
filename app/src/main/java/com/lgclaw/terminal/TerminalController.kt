@@ -3,6 +3,7 @@ package com.lgclaw.terminal
 import android.content.Context
 import android.provider.Settings
 import com.lgclaw.config.AppSession
+import com.lgclaw.config.AppStoragePaths
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import java.io.IOException
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -46,9 +48,15 @@ object TerminalController {
         this.context = appContext
         if (!initialized) initialized = true
         scope.launch {
-            refreshToolchainStatus()
-            refreshOverlayPermission(appContext)
-            refreshWorkspaces()
+            runCatching {
+                refreshToolchainStatus()
+                refreshOverlayPermission(appContext)
+                refreshWorkspaces()
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(lastError = "终端初始化失败：${error.message ?: error.javaClass.simpleName}")
+                }
+            }
         }
     }
 
@@ -58,20 +66,44 @@ object TerminalController {
     }
 
     suspend fun refreshToolchainStatus(): TerminalToolchainStatus = withContext(Dispatchers.IO) {
-        val appContext = requireContext()
-        val manager = TerminalToolchainManager(appContext)
-        val status = manager.ensureLayout()
-        _state.update {
-            it.copy(
-                ready = status.ready,
-                toolchainRoot = status.toolchainRoot,
-                shellPath = status.shellPath,
-                installedExecutables = status.installedExecutables,
-                missingExecutables = status.missingExecutables,
-                lastError = status.lastError
+        runCatching {
+            val appContext = requireContext()
+            val manager = TerminalToolchainManager(appContext)
+            val status = manager.ensureLayout()
+            _state.update {
+                it.copy(
+                    ready = status.ready,
+                    toolchainRoot = status.toolchainRoot,
+                    shellPath = status.shellPath,
+                    installedExecutables = status.installedExecutables,
+                    missingExecutables = status.missingExecutables,
+                    lastError = status.lastError
+                )
+            }
+            status
+        }.getOrElse { error ->
+            val appContext = context
+            val toolchainRoot = appContext?.let { AppStoragePaths.terminalPrefixDir(it).absolutePath }.orEmpty()
+            val fallback = TerminalToolchainStatus(
+                ready = false,
+                shellPath = "",
+                installedExecutables = emptySet(),
+                missingExecutables = developerToolNames + bootstrapMissingFallback(),
+                toolchainRoot = toolchainRoot,
+                lastError = "终端初始化失败：${error.message ?: error.javaClass.simpleName}"
             )
+            _state.update {
+                it.copy(
+                    ready = false,
+                    toolchainRoot = fallback.toolchainRoot,
+                    shellPath = "",
+                    installedExecutables = emptySet(),
+                    missingExecutables = fallback.missingExecutables,
+                    lastError = fallback.lastError
+                )
+            }
+            fallback
         }
-        status
     }
 
     fun setTerminalMode(sessionId: String, enabled: Boolean) {
@@ -115,69 +147,93 @@ object TerminalController {
         if (!isTerminalModeEnabled(sid)) {
             setTerminalMode(sid, true)
         }
-        val appContext = requireContext()
-        val manager = TerminalToolchainManager(appContext)
-        manager.ensureLayout()
-        val shell = manager.resolveExecutable("sh")
-            ?: manager.resolveExecutable("bash")
-            ?: "/system/bin/sh"
-        val workspace = request.cwd?.trim()?.takeIf { it.isNotBlank() }?.let(::File)
-            ?: manager.workspaceDir(sid)
-        workspace.mkdirs()
         val startedAt = System.currentTimeMillis()
         val jobId = "terminal_${startedAt}_${UUID.randomUUID().toString().take(8)}"
         val outputBuffer = StringBuilder()
-        val process = withContext(Dispatchers.IO) {
-            ProcessBuilder(shell, "-lc", request.command).apply {
-                environment().putAll(manager.buildEnvironment(workspace))
-                directory(workspace)
-                redirectErrorStream(false)
-            }.start()
-        }
-
-        activeProcesses[sid] = process
-        activeSessions[sid] = jobId
-        pushStateForRunning(sid, jobId, request.command, workspace.absolutePath)
-
-        val stdout = scope.launch(Dispatchers.IO) {
-            readStream(sid, "stdout", process.inputStream, outputBuffer)
-        }
-        val stderr = scope.launch(Dispatchers.IO) {
-            readStream(sid, "stderr", process.errorStream, outputBuffer)
-        }
-
-        val exitCode = try {
-            withTimeout(request.timeoutMs.coerceAtLeast(1_000L)) {
-                withContext(Dispatchers.IO) { process.waitFor() }
+        val appContext = requireContext()
+        val manager = TerminalToolchainManager(appContext)
+        return runCatching {
+            manager.ensureLayout()
+            val workspace = request.cwd?.trim()?.takeIf { it.isNotBlank() }?.let(::File)
+                ?: manager.workspaceDir(sid)
+            workspace.mkdirs()
+            val launch = withContext(Dispatchers.IO) {
+                launchShellProcess(
+                    manager = manager,
+                    workspace = workspace,
+                    command = request.command
+                )
             }
-        } catch (_: Throwable) {
-            process.destroy()
-            -1
-        }
 
-        stdout.join()
-        stderr.join()
-        activeProcesses.remove(sid)
-        activeSessions.remove(sid)
-        val finishedAt = System.currentTimeMillis()
-        val resultText = outputBuffer.toString().trim()
-        val status = manager.inspect()
-        val result = TerminalExecutionResult(
-            sessionId = sid,
-            jobId = jobId,
-            command = request.command,
-            exitCode = exitCode,
-            output = resultText,
-            startedAt = startedAt,
-            finishedAt = finishedAt,
-            workingDirectory = workspace.absolutePath,
-            usedToolchain = shell != "/system/bin/sh" || status.missingExecutables.isEmpty(),
-            error = if (exitCode == 0) null else "命令退出码 $exitCode"
-        )
-        appendResult(result)
-        refreshToolchainStatus()
-        refreshWorkspaces()
-        return result
+            activeProcesses[sid] = launch.process
+            activeSessions[sid] = jobId
+            pushStateForRunning(sid, jobId, request.command, workspace.absolutePath)
+            if (launch.shellPath == "/system/bin/sh") {
+                appendStatusLine(sid, "内嵌 shell 被系统拦截，已临时切换到系统 shell；如 node/python/git 不可用，请安装本版 APK 后重新开启终端")
+            }
+
+            val stdout = scope.launch(Dispatchers.IO) {
+                readStream(sid, "stdout", launch.process.inputStream, outputBuffer)
+            }
+            val stderr = scope.launch(Dispatchers.IO) {
+                readStream(sid, "stderr", launch.process.errorStream, outputBuffer)
+            }
+
+            val exitCode = try {
+                withTimeout(request.timeoutMs.coerceAtLeast(1_000L)) {
+                    withContext(Dispatchers.IO) { launch.process.waitFor() }
+                }
+            } catch (_: Throwable) {
+                launch.process.destroy()
+                -1
+            }
+
+            stdout.join()
+            stderr.join()
+            activeProcesses.remove(sid)
+            activeSessions.remove(sid)
+            val finishedAt = System.currentTimeMillis()
+            val resultText = outputBuffer.toString().trim()
+            val status = runCatching { manager.inspect() }.getOrNull()
+            val usedToolchain = launch.shellPath != "/system/bin/sh" && status?.missingExecutables?.isEmpty() != false
+            val result = TerminalExecutionResult(
+                sessionId = sid,
+                jobId = jobId,
+                command = request.command,
+                exitCode = exitCode,
+                output = resultText,
+                startedAt = startedAt,
+                finishedAt = finishedAt,
+                workingDirectory = manager.workspaceDir(sid).absolutePath,
+                usedToolchain = usedToolchain,
+                // If we had to fall back to /system/bin/sh, the command still ran,
+                // but developer toolchain access may be partial.
+                error = if (exitCode == 0) null else "命令退出码 $exitCode"
+            )
+            appendResult(result)
+            runCatching { refreshToolchainStatus() }
+            refreshWorkspaces()
+            result
+        }.getOrElse { error ->
+            activeProcesses.remove(sid)?.let { runCatching { it.destroy() } }
+            activeSessions.remove(sid)
+            val message = "终端执行失败：${error.message ?: error.javaClass.simpleName}"
+            appendStatusLine(sid, message)
+            val result = TerminalExecutionResult(
+                sessionId = sid,
+                jobId = jobId,
+                command = request.command,
+                exitCode = -1,
+                output = message,
+                startedAt = startedAt,
+                finishedAt = System.currentTimeMillis(),
+                workingDirectory = context?.let { TerminalToolchainManager(it).workspaceDir(sid).absolutePath }.orEmpty(),
+                usedToolchain = false,
+                error = message
+            )
+            appendResult(result)
+            result
+        }
     }
 
     fun cancelActive(sessionId: String): Boolean {
@@ -275,17 +331,16 @@ object TerminalController {
         appendStatusLine(sessionId, "正在安装 APK 内置离线 Linux 开发环境，首次解包需要一点时间")
 
         val workspace = manager.workspaceDir(sessionId)
-        val shell = status.shellPath.ifBlank { manager.resolveExecutable("sh") ?: "/system/bin/sh" }
         val startedAt = System.currentTimeMillis()
         val jobId = "terminal_install_$startedAt"
         val outputBuffer = StringBuilder()
-        val process = runCatching {
+        val launch = runCatching {
             withContext(Dispatchers.IO) {
-                ProcessBuilder(shell, "-lc", manager.corePackageInstallCommand()).apply {
-                    environment().putAll(manager.buildEnvironment(workspace))
-                    directory(workspace)
-                    redirectErrorStream(false)
-                }.start()
+                launchShellProcess(
+                    manager = manager,
+                    workspace = workspace,
+                    command = manager.corePackageInstallCommand()
+                )
             }
         }.getOrElse { error ->
             installingCorePackages = false
@@ -300,6 +355,7 @@ object TerminalController {
             }
             return
         }
+        val process = launch.process
 
         activeProcesses[sessionId] = process
         activeSessions[sessionId] = jobId
@@ -430,5 +486,46 @@ object TerminalController {
 
     private fun normalizeSessionId(sessionId: String): String {
         return sessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID }
+    }
+
+    private fun bootstrapMissingFallback(): Set<String> {
+        return setOf("sh", "bash", "pkg", "apt", "tar")
+    }
+
+    private data class ShellLaunch(
+        val process: Process,
+        val shellPath: String
+    )
+
+    private fun launchShellProcess(
+        manager: TerminalToolchainManager,
+        workspace: File,
+        command: String
+    ): ShellLaunch {
+        val candidates = listOfNotNull(
+            manager.resolveExecutable("sh"),
+            manager.resolveExecutable("bash"),
+            "/system/bin/sh".takeIf { File(it).exists() }
+        ).distinct()
+        var lastError: IOException? = null
+        for (shell in candidates) {
+            try {
+                val process = ProcessBuilder(shell, "-lc", command).apply {
+                    environment().putAll(manager.buildEnvironment(workspace))
+                    directory(workspace)
+                    redirectErrorStream(false)
+                }.start()
+                return ShellLaunch(process, shell)
+            } catch (error: IOException) {
+                lastError = error
+                val message = error.message.orEmpty()
+                val permissionDenied = message.contains("Permission denied", ignoreCase = true) ||
+                    message.contains("error=13", ignoreCase = true)
+                if (!permissionDenied && shell == candidates.last()) {
+                    throw error
+                }
+            }
+        }
+        throw lastError ?: IOException("无法启动任何可用的 shell")
     }
 }

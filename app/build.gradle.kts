@@ -19,9 +19,12 @@ android {
     defaultConfig {
         applicationId = "com.lgclaw"
         minSdk = 24
-        targetSdk = 35
-        versionCode = 8
-        versionName = "0.1.7"
+        // LGClaw embeds a Termux-style executable toolchain under app-private
+        // storage. Android blocks that for targetSdk >= 29, so we keep the
+        // target at 28 like terminal-first apps do.
+        targetSdk = 28
+        versionCode = 9
+        versionName = "0.1.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -48,6 +51,10 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    lint {
+        disable += "ExpiredTargetSdkVersion"
     }
 
     packaging {

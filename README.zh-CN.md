@@ -10,7 +10,7 @@
 [![平台](https://img.shields.io/badge/平台-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](#)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Compose-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](#)
 [![本地优先](https://img.shields.io/badge/本地优先-Agent%20Runtime-0A84FF?style=for-the-badge)](#)
-[![下载 APK](https://img.shields.io/badge/下载-v0.1.8%20APK-f39c12?style=for-the-badge&logo=android&logoColor=white)](https://github.com/ly5201314gjx/LgClaw/releases/latest/download/LGClaw-Pro-debug.apk)
+[![下载 APK](https://img.shields.io/badge/下载-v0.1.9%20APK-f39c12?style=for-the-badge&logo=android&logoColor=white)](https://github.com/ly5201314gjx/LgClaw/releases/latest/download/LGClaw-Pro-debug.apk)
 
 </div>
 
@@ -24,11 +24,11 @@
 
 ## 最新更新
 
-**v0.1.8** 让 LGClaw 更像一台真正可用的移动端智能体工作台：
+**v0.1.9** 重点把内嵌终端做扎实：
 
-- 新增内嵌 arm64 终端运行时，离线提供 Node.js/npm、Python/pip/uv、Git、SSH、shell 工具和会话级工作区。
-- 终端模式做了稳定性加固，长按、展开、取消、强制关闭都不会轻易把初始化流程带崩。
-- 计划模式和 Agent 调度链路改成 Codex 风格：先规划，再挑技能、工具和终端步骤，执行后读取结果并修正，再给出结论。
+- APK 已经内置完整 arm64 终端资源，并采用适合终端类应用的 Android target，确保 Node.js/npm、Python/pip/uv、Git、SSH 和 shell 工具能从 LGClaw 私有运行时执行。
+- 终端启动失败会显示中文状态输出，不再把聊天页直接带崩。
+- 迷你终端浮窗的关闭按钮现在只隐藏浮窗，不会误杀正在运行的任务。
 - 最新安装包已发布到 [GitHub Releases](https://github.com/ly5201314gjx/LgClaw/releases/latest)。
 
 完整记录见 [CHANGELOG](./CHANGELOG.md)。
