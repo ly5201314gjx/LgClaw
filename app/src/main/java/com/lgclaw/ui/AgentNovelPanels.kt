@@ -1,6 +1,7 @@
 ﻿package com.lgclaw.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
@@ -13,17 +14,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -84,87 +82,95 @@ internal fun AgentCenterPanel(
         }
     }
 
-    LazyColumn(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { PanelHeader("智能体中心", "管理会话智能体、能力配置和角色卡。绑定后，每轮对话都会读取对应设定。") }
+    LazyColumn(
+        Modifier.fillMaxSize().background(ModernPanelTokens.Page).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
         item {
-            PanelCard {
+            ModernHeroCard(
+                title = "智能体中心",
+                subtitle = "管理会话智能体、能力配置和角色卡。绑定后，每轮对话都会读取对应设定。",
+                status = if (state.currentAgentBinding?.agentId != null) "已绑定" else "普通对话"
+            )
+        }
+        item {
+            ModernSectionCard(title = "当前会话", subtitle = "这里的状态会和聊天顶部同步，绑定或解绑都会强提示。") {
                 Text("当前会话", fontWeight = FontWeight.SemiBold)
-                Text("智能体：" + state.currentAgentName.ifBlank { "未绑定" }, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("角色卡：" + state.currentRoleCardName.ifBlank { "未绑定" }, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("智能体：" + state.currentAgentName.ifBlank { "未绑定" }, color = ModernPanelTokens.Muted)
+                Text("角色卡：" + state.currentRoleCardName.ifBlank { "未绑定" }, color = ModernPanelTokens.Muted)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     state.agentProfiles.filter { it.enabled }.forEach { profile ->
-                        FilterChip(selected = state.currentAgentBinding?.agentId == profile.id, onClick = { onBindAgent(profile.id, state.activeNovelProjectId.ifBlank { null }) }, label = { Text(profile.name, maxLines = 1, overflow = TextOverflow.Ellipsis) })
+                        ModernChip(text = profile.name, selected = state.currentAgentBinding?.agentId == profile.id, onClick = { onBindAgent(profile.id, state.activeNovelProjectId.ifBlank { null }) })
                     }
-                    FilterChip(selected = state.currentAgentBinding?.agentId == null, onClick = { onBindAgent(null, null) }, label = { Text("无智能体") })
+                    ModernChip(text = "无智能体", selected = state.currentAgentBinding?.agentId == null, onClick = { onBindAgent(null, null) })
                 }
             }
         }
         item {
-            PanelCard {
+            ModernSectionCard(title = "角色卡", subtitle = "角色卡会在每轮对话前注入，用于稳定角色扮演、语气和边界。") {
                 Text("角色卡", fontWeight = FontWeight.SemiBold)
                 if (state.roleCards.isEmpty()) {
-                    Text("还没有角色卡。可以在下方创建一个有性格、有边界、有场景的角色。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("还没有角色卡。可以在下方创建一个有性格、有边界、有场景的角色。", color = ModernPanelTokens.Muted)
                 } else {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         state.roleCards.filter { it.enabled }.forEach { card ->
-                            FilterChip(selected = state.activeRoleCardId == card.id, onClick = { onBindRoleCard(card.id) }, label = { Text("${card.avatarSymbol} ${card.name}", maxLines = 1, overflow = TextOverflow.Ellipsis) })
+                            ModernChip(text = "${card.avatarSymbol} ${card.name}", selected = state.activeRoleCardId == card.id, onClick = { onBindRoleCard(card.id) })
                         }
-                        FilterChip(selected = state.activeRoleCardId.isBlank(), onClick = { onBindRoleCard(null) }, label = { Text("无角色卡") })
+                        ModernChip(text = "无角色卡", selected = state.activeRoleCardId.isBlank(), onClick = { onBindRoleCard(null) })
                     }
                 }
             }
         }
         item {
-            PanelCard {
+            ModernSectionCard(title = "新建角色卡", subtitle = "可以先写核心人设，再逐步补充语气、关系和边界。") {
                 Text("新建角色卡", fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(roleAvatar, { roleAvatar = it.take(4) }, label = { Text("标识") }, singleLine = true, modifier = Modifier.width(92.dp))
-                    OutlinedTextField(roleName, { roleName = it }, label = { Text("名称") }, singleLine = true, modifier = Modifier.weight(1f))
+                    ModernTextField(roleAvatar, { roleAvatar = it.take(4) }, label = "标识", singleLine = true, modifier = Modifier.width(92.dp))
+                    ModernTextField(roleName, { roleName = it }, label = "名称", singleLine = true, modifier = Modifier.weight(1f))
                 }
-                OutlinedTextField(roleDescription, { roleDescription = it }, label = { Text("简介") }, minLines = 2, maxLines = 3, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(rolePersona, { rolePersona = it }, label = { Text("角色设定") }, minLines = 4, maxLines = 8, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(roleStyle, { roleStyle = it }, label = { Text("说话风格") }, minLines = 2, maxLines = 5, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(roleScenario, { roleScenario = it }, label = { Text("当前场景与关系") }, minLines = 2, maxLines = 5, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(roleBoundaries, { roleBoundaries = it }, label = { Text("边界与禁区") }, minLines = 2, maxLines = 5, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(roleExamples, { roleExamples = it }, label = { Text("示例对话") }, minLines = 2, maxLines = 6, modifier = Modifier.fillMaxWidth())
-                Button(onClick = {
+                ModernTextField(roleDescription, { roleDescription = it }, label = "简介", minLines = 2, maxLines = 3)
+                ModernTextField(rolePersona, { rolePersona = it }, label = "角色设定", minLines = 4, maxLines = 8)
+                ModernTextField(roleStyle, { roleStyle = it }, label = "说话风格", minLines = 2, maxLines = 5)
+                ModernTextField(roleScenario, { roleScenario = it }, label = "当前场景与关系", minLines = 2, maxLines = 5)
+                ModernTextField(roleBoundaries, { roleBoundaries = it }, label = "边界与禁区", minLines = 2, maxLines = 5)
+                ModernTextField(roleExamples, { roleExamples = it }, label = "示例对话", minLines = 2, maxLines = 6)
+                ModernPrimaryButton(text = "保存并绑定角色卡", onClick = {
                     onCreateRoleCard(roleName, roleAvatar, roleDescription, rolePersona, roleStyle, roleBoundaries, roleScenario, roleExamples)
                     roleName = ""; roleAvatar = "角"; roleDescription = ""; rolePersona = ""; roleStyle = ""; roleBoundaries = ""; roleScenario = ""; roleExamples = ""
-                }, enabled = roleName.isNotBlank() && rolePersona.length >= 12) { Text("保存并绑定角色卡") }
+                }, enabled = roleName.isNotBlank() && rolePersona.length >= 12)
             }
         }
         items(state.roleCards, key = { it.id }) { card ->
-            PanelCard {
+            ModernSectionCard {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(card.avatarSymbol, style = MaterialTheme.typography.titleMedium)
                     Column(Modifier.weight(1f)) {
                         Text(card.name, fontWeight = FontWeight.SemiBold)
-                        Text(card.description.ifBlank { "暂无简介" }, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(card.description.ifBlank { "暂无简介" }, maxLines = 2, overflow = TextOverflow.Ellipsis, color = ModernPanelTokens.Muted)
                     }
-                    TextButton(onClick = { pendingDeleteRole = card }) { Text("删除") }
+                    ModernSecondaryButton(text = "删除", onClick = { pendingDeleteRole = card }, danger = true)
                 }
                 Text(card.persona, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(onClick = { onBindRoleCard(card.id) }) { Text("绑定到当前会话") }
-                    if (state.activeRoleCardId == card.id) Text("使用中", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                    ModernSecondaryButton(text = "绑定到当前会话", onClick = { onBindRoleCard(card.id) })
+                    if (state.activeRoleCardId == card.id) ModernStatusPill("使用中")
                 }
             }
         }
         item {
-            PanelCard {
+            ModernSectionCard(title = "创建运行时智能体", subtitle = "可以只填一部分，再让 AI 补全完整设定。") {
                 Text("创建运行时智能体", fontWeight = FontWeight.SemiBold)
-                Text("可以只填一部分，再让 AI 补全完整设定。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedTextField(name, { name = it }, label = { Text("名称") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(type, { type = it }, label = { Text("类型") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(description, { description = it }, label = { Text("描述") }, minLines = 2, maxLines = 3, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(prompt, { prompt = it }, label = { Text("系统提示词") }, minLines = 5, maxLines = 10, modifier = Modifier.fillMaxWidth())
+                ModernTextField(name, { name = it }, label = "名称", singleLine = true)
+                ModernTextField(type, { type = it }, label = "类型", singleLine = true)
+                ModernTextField(description, { description = it }, label = "描述", minLines = 2, maxLines = 3)
+                ModernTextField(prompt, { prompt = it }, label = "系统提示词", minLines = 5, maxLines = 10)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { onCreateAgent(name, type, description, prompt); name = ""; type = "自定义"; description = ""; prompt = "" }, enabled = name.isNotBlank() || type.isNotBlank() || description.isNotBlank() || prompt.isNotBlank()) { Text("保存智能体") }
-                    OutlinedButton(onClick = { onCompleteAndCreateAgent(name, type, description, prompt) }, enabled = name.isNotBlank() || type.isNotBlank() || description.isNotBlank() || prompt.isNotBlank()) { Text("AI 补全并保存") }
+                    ModernPrimaryButton(text = "保存智能体", onClick = { onCreateAgent(name, type, description, prompt); name = ""; type = "自定义"; description = ""; prompt = "" }, enabled = name.isNotBlank() || type.isNotBlank() || description.isNotBlank() || prompt.isNotBlank())
+                    ModernSecondaryButton(text = "AI 补全并保存", onClick = { onCompleteAndCreateAgent(name, type, description, prompt) }, enabled = name.isNotBlank() || type.isNotBlank() || description.isNotBlank() || prompt.isNotBlank())
                 }
             }
         }
-        item { Text("智能体列表", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+        item { ModernSectionCard { Text("智能体列表", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) } }
         items(state.agentProfiles, key = { it.id }) { profile ->
             AgentProfileCard(
                 profile = profile,
@@ -206,47 +212,47 @@ private fun AgentProfileCard(
     var editTools by remember(profile.id, profile.updatedAt) { mutableStateOf(profile.dynamicTools.joinToString("，")) }
     var testMessage by remember(profile.id) { mutableStateOf("") }
 
-    PanelCard {
+    ModernSectionCard {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(profile.name, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    Text(agentTypeLabel(profile.type), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    ModernStatusPill(agentTypeLabel(profile.type))
                 }
-                Text(profile.description.ifBlank { "暂无描述" }, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(profile.description.ifBlank { "暂无描述" }, maxLines = 2, overflow = TextOverflow.Ellipsis, color = ModernPanelTokens.Muted)
                 Text("编号：${profile.id}  更新：${formatAgentTime(profile.updatedAt)}", style = MaterialTheme.typography.bodySmall)
             }
-            TextButton(onClick = onToggleExpanded) { Text(if (expanded) "收起" else "详情") }
+            ModernSecondaryButton(text = if (expanded) "收起" else "详情", onClick = onToggleExpanded)
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onBind, enabled = profile.enabled) { Text(if (isBound) "已绑定" else "强提示绑定") }
-            if (isBound) TextButton(onClick = onUnbind) { Text("取消绑定") }
-            OutlinedButton(onClick = { onSetEnabled(!profile.enabled) }) { Text(if (profile.enabled) "停用" else "启用") }
-            OutlinedButton(onClick = onDuplicate) { Text(if (isBuiltin) "复制后编辑" else "复制") }
+            ModernPrimaryButton(text = if (isBound) "已绑定" else "强提示绑定", onClick = onBind, enabled = profile.enabled)
+            if (isBound) ModernSecondaryButton(text = "取消绑定", onClick = onUnbind, danger = true)
+            ModernSecondaryButton(text = if (profile.enabled) "停用" else "启用", onClick = { onSetEnabled(!profile.enabled) })
+            ModernSecondaryButton(text = if (isBuiltin) "复制后编辑" else "复制", onClick = onDuplicate)
         }
-        if (isBound) Text("【当前会话正在使用】后续每轮对话都会读取此智能体。", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
-        if (!profile.enabled) Text("此智能体已停用，不会出现在绑定选择中。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        if (isBound) Text("【当前会话正在使用】后续每轮对话都会读取此智能体。", color = ModernPanelTokens.Accent, style = MaterialTheme.typography.bodySmall)
+        if (!profile.enabled) Text("此智能体已停用，不会出现在绑定选择中。", color = ModernPanelTokens.Danger, style = MaterialTheme.typography.bodySmall)
         if (expanded) {
             Text("详细介绍", fontWeight = FontWeight.SemiBold)
-            Text(profile.systemPrompt, maxLines = 8, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(profile.systemPrompt, maxLines = 8, overflow = TextOverflow.Ellipsis, color = ModernPanelTokens.Muted)
             Text("能力配置", fontWeight = FontWeight.SemiBold)
             Text("默认技能：${profile.defaultSkills.ifEmpty { listOf("无") }.joinToString("、")}", style = MaterialTheme.typography.bodySmall)
             Text("动态工具：${profile.dynamicTools.ifEmpty { listOf("无") }.joinToString("、")}", style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(testMessage, { testMessage = it }, label = { Text("测试消息") }, minLines = 2, maxLines = 4, modifier = Modifier.fillMaxWidth())
-            OutlinedButton(onClick = { onPreview(testMessage) }, modifier = Modifier.fillMaxWidth()) { Text("预览运行时上下文") }
+            ModernTextField(testMessage, { testMessage = it }, label = "测试消息", minLines = 2, maxLines = 4)
+            ModernSecondaryButton(text = "预览运行时上下文", onClick = { onPreview(testMessage) }, modifier = Modifier.fillMaxWidth())
             Text("手动修改", fontWeight = FontWeight.SemiBold)
             if (isBuiltin) {
-                Text("内置智能体不可直接改写，可以先复制为自定义智能体再编辑。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("内置智能体不可直接改写，可以先复制为自定义智能体再编辑。", color = ModernPanelTokens.Muted)
             } else {
-                OutlinedTextField(editName, { editName = it }, label = { Text("名称") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(editType, { editType = it }, label = { Text("类型") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(editDescription, { editDescription = it }, label = { Text("描述") }, minLines = 2, maxLines = 4, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(editPrompt, { editPrompt = it }, label = { Text("系统提示词") }, minLines = 5, maxLines = 12, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(editSkills, { editSkills = it }, label = { Text("默认技能，用逗号分隔") }, minLines = 1, maxLines = 3, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(editTools, { editTools = it }, label = { Text("动态工具，用逗号分隔") }, minLines = 1, maxLines = 3, modifier = Modifier.fillMaxWidth())
+                ModernTextField(editName, { editName = it }, label = "名称", singleLine = true)
+                ModernTextField(editType, { editType = it }, label = "类型", singleLine = true)
+                ModernTextField(editDescription, { editDescription = it }, label = "描述", minLines = 2, maxLines = 4)
+                ModernTextField(editPrompt, { editPrompt = it }, label = "系统提示词", minLines = 5, maxLines = 12)
+                ModernTextField(editSkills, { editSkills = it }, label = "默认技能，用逗号分隔", minLines = 1, maxLines = 3)
+                ModernTextField(editTools, { editTools = it }, label = "动态工具，用逗号分隔", minLines = 1, maxLines = 3)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { onUpdate(profile.id, editName, editType, editDescription, editPrompt, editSkills, editTools, profile.enabled) }) { Text("保存修改") }
-                    TextButton(onClick = onDelete) { Text("删除") }
+                    ModernPrimaryButton(text = "保存修改", onClick = { onUpdate(profile.id, editName, editType, editDescription, editPrompt, editSkills, editTools, profile.enabled) })
+                    ModernSecondaryButton(text = "删除", onClick = onDelete, danger = true)
                 }
             }
         }
@@ -486,12 +492,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.ifActiveProject(
 
 @Composable
 internal fun ConfirmDeleteDialog(title: String, text: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = { Text(text) },
-        confirmButton = { Button(onClick = onConfirm) { Text("确认删除") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    ModernConfirmDialog(
+        title = title,
+        message = text,
+        confirmText = "确认删除",
+        dismissText = "取消",
+        onDismiss = onDismiss,
+        onConfirm = onConfirm,
+        danger = true
     )
 }
 
@@ -506,17 +514,12 @@ private fun NovelStats(state: ChatUiState) {
 
 @Composable
 internal fun PanelHeader(title: String, subtitle: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-        Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
+    ModernHeroCard(title = title, subtitle = subtitle)
 }
 
 @Composable
 internal fun PanelCard(content: @Composable ColumnScope.() -> Unit) {
-    Surface(shape = RoundedCornerShape(8.dp), tonalElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
-    }
+    ModernSectionCard(content = content)
 }
 
 private fun formatAgentTime(timestamp: Long): String {

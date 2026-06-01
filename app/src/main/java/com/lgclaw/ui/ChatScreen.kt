@@ -136,6 +136,7 @@ import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -157,6 +158,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
@@ -170,6 +172,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -388,6 +391,7 @@ fun ChatScreen(vm: ChatViewModel) {
     var olderHistoryLoadingStartedAtMs by rememberSaveable { mutableStateOf(0L) }
     var pendingHistoryRestore by remember { mutableStateOf<HistoryRestoreRequest?>(null) }
     val expandedToolMessages = remember { mutableStateMapOf<Long, Boolean>() }
+    var selectedToolGroupStartId by rememberSaveable { mutableStateOf<Long?>(null) }
     var previewAudioPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var previewAudioRef by rememberSaveable { mutableStateOf<String?>(null) }
     var previewAudioDurationMs by rememberSaveable { mutableStateOf(0) }
@@ -2195,6 +2199,10 @@ fun ChatScreen(vm: ChatViewModel) {
     } else {
         state.messages
     }
+    val toolGroupsByStartId = remember(visibleMessages) {
+        buildToolMessageGroups(visibleMessages).associateBy { it.startId }
+    }
+    val selectedToolGroup = selectedToolGroupStartId?.let { toolGroupsByStartId[it] }
     val canLoadOlderHistory = hiddenRounds > 0
     val showHistoryStatus = visibleMessages.isNotEmpty()
     val headerItemCount = if (showHistoryStatus) 1 else 0
@@ -2635,6 +2643,19 @@ fun ChatScreen(vm: ChatViewModel) {
         vm.clearSettingsInfo()
     }
 
+    selectedToolGroup?.let { group ->
+        ToolResultsDialog(
+            group = group,
+            state = state,
+            expandedToolMessages = expandedToolMessages,
+            currentPreviewAudioRef = previewAudioRef,
+            currentPreviewAudioDurationMs = previewAudioDurationMs,
+            currentPreviewAudioPositionMs = previewAudioPositionMs,
+            onDismiss = { selectedToolGroupStartId = null },
+            onOpenAttachment = openAttachment,
+            onToggleAudioPreview = toggleAudioPreview
+        )
+    }
 
     if (showQuickRoleCardDialog) {
         AlertDialog(
@@ -2836,41 +2857,45 @@ fun ChatScreen(vm: ChatViewModel) {
             topBar = {
                 when (mainSurface) {
                     MainSurface.Chat -> Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        tonalElevation = 1.dp
+                        color = Color.White,
+                        contentColor = Color(0xFF171A20),
+                        tonalElevation = 0.dp,
+                        shadowElevation = 8.dp
                     ) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .statusBarsPadding()
-                                .padding(top = 6.dp, bottom = 6.dp)
+                                .drawBehind {
+                                    val y = size.height - 1f
+                                    drawLine(
+                                        color = Color(0xFFE7EAF0),
+                                        start = Offset(0f, y),
+                                        end = Offset(size.width, y),
+                                        strokeWidth = 1f
+                                    )
+                                }
+                                .padding(top = 7.dp, bottom = 8.dp)
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(44.dp)
-                                    .padding(horizontal = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    .height(42.dp)
+                                    .padding(horizontal = 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(7.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                IconButton(onClick = { dismissKeyboard(); uiScope.launch { drawerState.open() } }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Rounded.Menu, contentDescription = "打开菜单", modifier = Modifier.size(20.dp))
-                                }
-                                Icon(painter = painterResource(id = R.drawable.lgclaw_mark), contentDescription = null, modifier = Modifier.size(24.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text("LGClaw", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(
-                                        text = if (state.currentSessionId == AppSession.LOCAL_SESSION_ID) tr("LOCAL", "") else state.currentSessionTitle,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                IconButton(onClick = { showChatSearch = !showChatSearch }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Rounded.Search, contentDescription = "搜索聊天", modifier = Modifier.size(19.dp))
-                                }
+                                ModernCircleToolButton(
+                                    icon = Icons.Rounded.Menu,
+                                    contentDescription = "打开菜单",
+                                    onClick = { dismissKeyboard(); uiScope.launch { drawerState.open() } }
+                                )
+                                Spacer(modifier = Modifier.weight(1f))
+                                ModernCircleToolButton(
+                                    icon = Icons.Rounded.Search,
+                                    contentDescription = "搜索聊天",
+                                    onClick = { showChatSearch = !showChatSearch }
+                                )
                                 Surface(
                                     modifier = Modifier
                                         .height(28.dp)
@@ -2879,9 +2904,9 @@ fun ChatScreen(vm: ChatViewModel) {
                                             onLongClick = { showCompressionConfirm = true }
                                         ),
                                     shape = RoundedCornerShape(999.dp),
-                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.42f),
-                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.18f))
+                                    color = Color(0xFFF8FAFC),
+                                    contentColor = Color(0xFF1B1E26),
+                                    border = BorderStroke(1.dp, Color(0xFFE6EAF1))
                                 ) {
                                     Box(
                                         modifier = Modifier.padding(horizontal = 9.dp),
@@ -2890,6 +2915,7 @@ fun ChatScreen(vm: ChatViewModel) {
                                         Text(
                                             "${"%.1f".format(Locale.US, state.currentConversationK)}K",
                                             style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
                                             maxLines = 1
                                         )
                                     }
@@ -2902,9 +2928,9 @@ fun ChatScreen(vm: ChatViewModel) {
                                         .padding(horizontal = 12.dp, vertical = 2.dp)
                                         .clickable { showCompressionCancelConfirm = true },
                                     shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.52f),
-                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.16f))
+                                    color = Color(0xFFF8FAFC),
+                                    contentColor = Color(0xFF1B1E26),
+                                    border = BorderStroke(1.dp, Color(0xFFE6EAF1))
                                 ) {
                                     Column(
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
@@ -2946,8 +2972,8 @@ fun ChatScreen(vm: ChatViewModel) {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 12.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(7.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 val providerModelGroups = state.settingsProviderConfigs
@@ -3014,7 +3040,7 @@ fun ChatScreen(vm: ChatViewModel) {
                                     }
                                 }
                                 if (state.currentAgentName.isNotBlank()) {
-                                    CompactHeaderChip("智能体：${state.currentAgentName}", Icons.Rounded.Person, onClick = { mainSurfaceName = MainSurface.Agents.name }, modifier = Modifier.widthIn(max = 190.dp))
+                                    CompactHeaderChip("智能体：${state.currentAgentName}", Icons.Rounded.Tune, onClick = { mainSurfaceName = MainSurface.Agents.name }, modifier = Modifier.widthIn(max = 190.dp))
                                 }
                             }
                         }
@@ -3151,6 +3177,7 @@ fun ChatScreen(vm: ChatViewModel) {
                             .fillMaxWidth()
                     ) {
                         ChatBackgroundLayer(state)
+                        val bubbleMaxWidth = rememberResponsiveBubbleMaxWidth()
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             state = listState,
@@ -3325,13 +3352,11 @@ fun ChatScreen(vm: ChatViewModel) {
                                         colors = bubbleColors,
                                         style = bubbleStyle,
                                         state = state,
-                                        modifier = Modifier.width(340.dp).then(messageActionModifier)
+                                        modifier = Modifier.widthIn(max = bubbleMaxWidth).then(messageActionModifier)
                                     ) {
                                         CompositionLocalProvider(LocalChatBubbleColors provides bubbleColors) {
                                             Column(
                                                 modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(horizontal = 12.dp, vertical = 8.dp)
                                             ) {
                                                 ChatBubbleHeader(
                                                     label = state.userDisplayName.ifBlank { tr("You", "") },
@@ -3363,100 +3388,15 @@ fun ChatScreen(vm: ChatViewModel) {
                                     }
                                 }
                             } else if (isTool) {
-                                Box(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    contentAlignment = Alignment.CenterStart
-                                ) {
-                                    ThemedMessageBubble(
-                                        colors = bubbleColors,
-                                        style = bubbleStyle,
-                                        state = state,
-                                        modifier = Modifier.width(340.dp).then(messageActionModifier)
-                                    ) {
-                                        CompositionLocalProvider(LocalChatBubbleColors provides bubbleColors) {
-                                            Column(
-                                                modifier = Modifier.padding(
-                                                    start = 12.dp,
-                                                    end = 12.dp,
-                                                    top = 1.dp,
-                                                    bottom = 10.dp
-                                                )
-                                            ) {
-                                                ChatBubbleHeader(
-                                                    label = tr("Tool", ""),
-                                                    createdAt = message.createdAt,
-                                                    topPadding = 7.dp
-                                                )
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    if (message.isCollapsible && !messageExpanded) {
-                                                        Text(
-                                                            text = message.content,
-                                                            style = MaterialTheme.typography.bodyMedium.copy(
-                                                                fontSize = messageFontSize,
-                                                                lineHeight = messageLineHeight,
-                                                                fontFamily = themeFontFamily
-                                                            ),
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis,
-                                                            modifier = Modifier.weight(1f),
-                                                            color = bubbleColors.content
-                                                        )
-                                                    } else {
-                                                        Spacer(modifier = Modifier.weight(1f))
-                                                    }
-                                                    if (message.isCollapsible) {
-                                                        CompactTextAction(
-                                                            label = uiLabel(if (messageExpanded) "Hide" else "Details"),
-                                                            expanded = messageExpanded,
-                                                            onClick = {
-                                                                expandedToolMessages[message.id] = !messageExpanded
-                                                            }
-                                                        )
-                                                    }
-                                                }
-                                                if (message.isCollapsible) {
-                                                    if (messageExpanded) {
-                                                        MarkdownText(
-                                                            markdown = displayContent,
-                                                            textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = messageFontSize, lineHeight = messageLineHeight, fontFamily = themeFontFamily),
-                                                            inlineCodeBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-                                                            quoteBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.56f),
-                                                            codeBlockBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f),
-                                                            contentColor = bubbleColors.content,
-                                                            lineHeightMultiplier = messageLineHeightMultiplier,
-                                                            typeface = customTypeface
-                                                        )
-                                                    }
-                                                } else {
-                                                    MarkdownText(
-                                                        markdown = displayContent,
-                                                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = messageFontSize, lineHeight = messageLineHeight, fontFamily = themeFontFamily),
-                                                        inlineCodeBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-                                                        quoteBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.56f),
-                                                        codeBlockBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f),
-                                                        contentColor = bubbleColors.content,
-                                                        lineHeightMultiplier = messageLineHeightMultiplier,
-                                                        typeface = customTypeface
-                                                    )
-                                                }
-                                                val showAttachments = message.attachments.isNotEmpty() &&
-                                                    (!message.isCollapsible || messageExpanded)
-                                                if (showAttachments) {
-                                                    MediaAttachmentList(
-                                                        attachments = message.attachments,
-                                                        currentPreviewAudioRef = previewAudioRef,
-                                                        currentPreviewAudioDurationMs = previewAudioDurationMs,
-                                                        currentPreviewAudioPositionMs = previewAudioPositionMs,
-                                                        onOpenAttachment = openAttachment,
-                                                        onToggleAudioPreview = toggleAudioPreview
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
+                                val toolGroup = toolGroupsByStartId[message.id]
+                                if (toolGroup == null) {
+                                    Spacer(modifier = Modifier.height(0.dp))
+                                } else {
+                                    ToolGroupDrawerRow(
+                                        group = toolGroup,
+                                        modifier = messageActionModifier,
+                                        onOpen = { selectedToolGroupStartId = toolGroup.startId }
+                                    )
                                 }
                             } else {
                                 Box(
@@ -3467,12 +3407,11 @@ fun ChatScreen(vm: ChatViewModel) {
                                         colors = bubbleColors,
                                         style = bubbleStyle,
                                         state = state,
-                                        modifier = Modifier.width(340.dp).then(messageActionModifier)
+                                        modifier = Modifier.widthIn(max = bubbleMaxWidth).then(messageActionModifier)
                                     ) {
                                         CompositionLocalProvider(LocalChatBubbleColors provides bubbleColors) {
                                             Column(
                                                 modifier = Modifier
-                                                    .padding(horizontal = 12.dp, vertical = 10.dp)
                                             ) {
                                                 ChatBubbleHeader(
                                                     label = if (isSystem) {
@@ -3488,6 +3427,7 @@ fun ChatScreen(vm: ChatViewModel) {
                                                     inlineCodeBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
                                                     quoteBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.56f),
                                                     codeBlockBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f),
+                                                    fillMaxWidth = false,
                                                     contentColor = bubbleColors.content,
                                                     lineHeightMultiplier = messageLineHeightMultiplier,
                                                     typeface = customTypeface
@@ -3524,9 +3464,10 @@ fun ChatScreen(vm: ChatViewModel) {
                                     contentAlignment = Alignment.CenterStart
                                 ) {
                                     Surface(
-                                        color = MaterialTheme.colorScheme.surfaceVariant,
-                                        shape = RoundedCornerShape(16.dp),
-                                        modifier = Modifier.width(340.dp)
+                                        color = Color.White,
+                                        shape = RoundedCornerShape(20.dp),
+                                        border = BorderStroke(1.dp, ModernPanelTokens.Border),
+                                        modifier = Modifier.widthIn(max = 320.dp)
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -3931,17 +3872,37 @@ private fun CompactHeaderChip(
 ) {
     Surface(
         modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFFF8FAFC),
+        contentColor = Color(0xFF242934),
+        border = BorderStroke(1.dp, Color(0xFFE6EAF1)),
+        shadowElevation = 2.dp
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            modifier = Modifier
+                .drawBehind {
+                    drawRoundRect(
+                        brush = Brush.linearGradient(
+                            colors = listOf(Color(0x33FFFFFF), Color.Transparent),
+                            start = Offset.Zero,
+                            end = Offset(size.width, size.height)
+                        ),
+                        cornerRadius = CornerRadius(14.dp.toPx(), 14.dp.toPx())
+                    )
+                }
+                .padding(horizontal = 9.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Icon(icon, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color(0xFF5F6B7D))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF242934),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -3973,6 +3934,40 @@ private fun ChatBackgroundLayer(state: ChatUiState) {
 }
 
 @Composable
+private fun ModernCircleToolButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.size(34.dp),
+        shape = RoundedCornerShape(13.dp),
+        color = Color.White,
+        contentColor = Color(0xFF20242D),
+        border = BorderStroke(1.dp, Color(0xFFE7EAF1)),
+        shadowElevation = 3.dp
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(onClick = onClick)
+                .drawBehind {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0x1A8FB8FF), Color.Transparent),
+                            center = Offset(size.width * 0.28f, size.height * 0.18f),
+                            radius = size.maxDimension * 0.72f
+                        )
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+@Composable
 private fun ThemePanel(
     state: ChatUiState,
     onPresetApply: (String) -> Unit,
@@ -3998,10 +3993,17 @@ private fun ThemePanel(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(ModernPanelTokens.Page)
             .verticalScroll(scrollState)
             .padding(horizontal = 12.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        ModernHeroCard(
+            title = "主题中心",
+            subtitle = "实时预览、气泡质感、字体排版和背景效果都会即时应用到聊天界面。",
+            status = UiBubbleStyle.fromKey(state.themeBubbleStyle).label
+        )
+
         ThemeLivePreview(state = state)
 
         SettingsSectionCard(title = "主题预设", subtitle = "一键切换完整视觉方案，背景图片会保留") {
@@ -4037,12 +4039,11 @@ private fun ThemePanel(
             ThemeColorField("我的气泡", userColorDraft) { userColorDraft = it }
             ThemeColorField("AI 气泡", assistantColorDraft) { assistantColorDraft = it }
             ThemeColorField("工具气泡", toolColorDraft) { toolColorDraft = it }
-            Button(
+            ModernPrimaryButton(
+                text = "应用气泡颜色",
                 onClick = { onBubbleColorsChange(userColorDraft, assistantColorDraft, toolColorDraft) },
                 modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("应用气泡颜色")
-            }
+            )
         }
 
         SettingsSectionCard(title = "文字排版", subtitle = "控制聊天消息的字体、字号、行距和文字颜色") {
@@ -4053,15 +4054,12 @@ private fun ThemePanel(
                 onSelect = onFontFamilyChange
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onPickCustomFont, modifier = Modifier.weight(1f)) {
-                    Text("选择字体文件")
-                }
-                OutlinedButton(
+                ModernSecondaryButton(text = "选择字体文件", onClick = onPickCustomFont, modifier = Modifier.weight(1f))
+                ModernSecondaryButton(
+                    text = "恢复系统字体",
                     onClick = { onFontFamilyChange(UiFontFamilyChoice.System.key) },
                     modifier = Modifier.weight(1f)
-                ) {
-                    Text("恢复系统字体")
-                }
+                )
             }
             if (state.themeCustomFontPath.isNotBlank()) {
                 Text(
@@ -4079,17 +4077,17 @@ private fun ThemePanel(
                 onTypographyTuning(state.themeMessageFontSizeSp, it)
             }
             var colorDraft by remember(state.themeTextColorHex) { mutableStateOf(state.themeTextColorHex) }
-            OutlinedTextField(
+            ModernTextField(
                 value = colorDraft,
                 onValueChange = { colorDraft = it },
-                label = { Text("字体颜色") },
-                placeholder = { Text("#222222，留空跟随主题") },
+                label = "字体颜色",
+                placeholder = "#222222，留空跟随主题",
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onTextColorChange(colorDraft) }) { Text("应用颜色") }
-                OutlinedButton(onClick = { colorDraft = ""; onTextColorChange("") }) { Text("跟随主题") }
+                ModernPrimaryButton(text = "应用颜色", onClick = { onTextColorChange(colorDraft) })
+                ModernSecondaryButton(text = "跟随主题", onClick = { colorDraft = ""; onTextColorChange("") })
             }
         }
 
@@ -4099,8 +4097,8 @@ private fun ThemePanel(
                 emptyText = "未设置聊天背景"
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onPickChatBackground) { Text("选择图片") }
-                OutlinedButton(onClick = onClearChatBackground) { Text("清除") }
+                ModernPrimaryButton(text = "选择图片", onClick = onPickChatBackground)
+                ModernSecondaryButton(text = "清除", onClick = onClearChatBackground)
             }
             ThemeSlider("透明度", state.chatBackgroundOpacity, 0f, 1f) {
                 onChatBackgroundTuning(it, state.chatBackgroundBlur, state.chatBackgroundGlass)
@@ -4119,8 +4117,8 @@ private fun ThemePanel(
                 emptyText = "未设置侧边栏背景"
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onPickDrawerBackground) { Text("选择图片") }
-                OutlinedButton(onClick = onClearDrawerBackground) { Text("清除") }
+                ModernPrimaryButton(text = "选择图片", onClick = onPickDrawerBackground)
+                ModernSecondaryButton(text = "清除", onClick = onClearDrawerBackground)
             }
             ThemeSlider("透明度", state.drawerBackgroundOpacity, 0f, 1f) {
                 onDrawerBackgroundTuning(it, state.drawerBackgroundBlur, state.drawerBackgroundGlass)
@@ -4134,9 +4132,7 @@ private fun ThemePanel(
         }
 
         SettingsSectionCard(title = "恢复默认", subtitle = "恢复文字、气泡、聊天背景和侧边栏背景") {
-            OutlinedButton(onClick = onResetThemeDefaults, modifier = Modifier.fillMaxWidth()) {
-                Text("恢复全部主题默认")
-            }
+            ModernSecondaryButton(text = "恢复全部主题默认", onClick = onResetThemeDefaults, modifier = Modifier.fillMaxWidth(), danger = true)
         }
     }
 }
@@ -4157,19 +4153,7 @@ private fun ThemeChoiceRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items.forEach { (key, label) ->
-                Surface(
-                    modifier = Modifier.clickable { onSelect(key) },
-                    shape = RoundedCornerShape(999.dp),
-                    color = if (selected == key) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f))
-                ) {
-                    Text(
-                        text = label,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (selected == key) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                    )
-                }
+                ModernChip(text = label, selected = selected == key, onClick = { onSelect(key) })
             }
         }
     }
@@ -4178,31 +4162,23 @@ private fun ThemeChoiceRow(
 @Composable
 private fun ThemePresetGrid(selected: String, onPresetApply: (String) -> Unit) {
     val presets = listOf(
-        ThemePresetUi("obsidian_glass", "曜石玻璃", "清透、稳重、默认推荐", "#BFD8FF", "#F7FAFF"),
-        ThemePresetUi("aurora_water", "极光水纹", "水玻璃、高光、流动感", "#A9F0FF", "#F6F2FF"),
-        ThemePresetUi("paper_reading", "纸感阅读", "温和、长文更舒服", "#E9F0FF", "#FFFDF7"),
-        ThemePresetUi("neon_night", "霓虹夜行", "深色、高对比、发光边缘", "#235CFF", "#1B1F31"),
-        ThemePresetUi("native_clear", "原生清爽", "干净轻快、接近系统默认", "#D7E6FF", "#FFFFFF")
+        ThemePresetUi("obsidian_glass", "云白玻璃", "清爽、通透、默认推荐", "#DCEBFF", "#FFFFFF"),
+        ThemePresetUi("aurora_water", "晨雾蓝", "轻水玻璃、柔光边缘", "#D7F3FF", "#FAFCFF"),
+        ThemePresetUi("paper_reading", "纸光阅读", "长文舒服、低刺激", "#EEF3FF", "#FFFDF8"),
+        ThemePresetUi("neon_night", "水晶浮层", "浅色晶面、细腻层次", "#E6F4FF", "#FFFFFF"),
+        ThemePresetUi("native_clear", "银杏暖白", "温暖、轻快、留白克制", "#FFF1D8", "#FFFFFF")
     )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         presets.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 row.forEach { preset ->
-                    Surface(
+                    ModernSectionCard(
                         modifier = Modifier
                             .weight(1f)
                             .heightIn(min = 86.dp)
-                            .clickable { onPresetApply(preset.key) },
-                        shape = RoundedCornerShape(14.dp),
-                        color = if (selected == preset.key) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                        border = BorderStroke(
-                            1.dp,
-                            if (selected == preset.key) MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
-                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.56f)
-                        )
+                            .clickable { onPresetApply(preset.key) }
                     ) {
                         Column(
-                            modifier = Modifier.padding(10.dp),
                             verticalArrangement = Arrangement.spacedBy(7.dp)
                         ) {
                             Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -4213,7 +4189,7 @@ private fun ThemePresetGrid(selected: String, onPresetApply: (String) -> Unit) {
                             Text(
                                 preset.subtitle,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = ModernPanelTokens.Muted,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -4244,11 +4220,11 @@ private fun ThemeColorField(label: String, value: String, onValueChange: (String
         verticalAlignment = Alignment.CenterVertically
     ) {
         ThemeColorDot(value)
-        OutlinedTextField(
+        ModernTextField(
             value = value,
             onValueChange = onValueChange,
-            label = { Text(label) },
-            placeholder = { Text("#BFD8FF") },
+            label = label,
+            placeholder = "#BFD8FF",
             singleLine = true,
             modifier = Modifier.weight(1f)
         )
@@ -4264,11 +4240,11 @@ private fun ThemeLivePreview(state: ChatUiState) {
     val fontSize = state.themeMessageFontSizeSp.coerceIn(12f, 20f).sp
     val lineMultiplier = state.themeMessageLineHeightMultiplier.coerceIn(1f, 1.7f)
     val previewBackdrop = when (state.themePreset) {
-        "aurora_water" -> listOf(Color(0xFF5DE7FF), Color(0xFFFF8CD9), Color(0xFF7B61FF))
-        "neon_night" -> listOf(Color(0xFF07111F), Color(0xFF2E1F78), Color(0xFF00D7FF))
-        "paper_reading" -> listOf(Color(0xFFFFFBF2), Color(0xFFECE1CF), Color(0xFFF8F1E7))
-        "native_clear" -> listOf(Color(0xFFF7FAFF), Color(0xFFEAF2FF), Color(0xFFFFFFFF))
-        else -> listOf(Color(0xFF111827), Color(0xFF315A78), Color(0xFFE8F4FF))
+        "aurora_water" -> listOf(Color(0xFFE6F7FF), Color(0xFFF8FBFF), Color(0xFFDDEBFF))
+        "neon_night" -> listOf(Color(0xFFFFFFFF), Color(0xFFEFF6FF), Color(0xFFEAF7F3))
+        "paper_reading" -> listOf(Color(0xFFFFFDF8), Color(0xFFF2EDE2), Color(0xFFFFFFFF))
+        "native_clear" -> listOf(Color(0xFFFFF7E8), Color(0xFFFFFFFF), Color(0xFFFFF2D9))
+        else -> listOf(Color(0xFFFFFFFF), Color(0xFFEAF3FF), Color(0xFFF7FAFF))
     }
     Surface(
         shape = RoundedCornerShape(18.dp),
@@ -4322,22 +4298,31 @@ private fun ThemeLivePreview(state: ChatUiState) {
                     lineHeightMultiplier = lineMultiplier,
                     typeface = typeface
                 )
-                PreviewBubble(
-                    text = "工具结果：已识别 1 张图片和 1 个 PDF，小条显示，不占输入框。",
-                    alignEnd = false,
-                    colors = previewBubbleColors(
-                        parseThemeColorOrNull(state.themeToolBubbleColorHex) ?: MaterialTheme.colorScheme.secondaryContainer,
-                        bubbleStyle,
-                        state,
-                        isDarkTheme
-                    ),
-                    style = bubbleStyle,
-                    state = state,
-                    fontFamily = fontFamily,
-                    fontSize = (state.themeMessageFontSizeSp.coerceIn(12f, 20f) - 0.5f).sp,
-                    lineHeightMultiplier = lineMultiplier,
-                    typeface = typeface
-                )
+                ToolPreviewDrawer()
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolPreviewDrawer() {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = Color.White.copy(alpha = 0.88f),
+        contentColor = ModernPanelTokens.Text,
+        border = BorderStroke(1.dp, ModernPanelTokens.Border),
+        shadowElevation = 1.dp,
+        modifier = Modifier.widthIn(max = 292.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ModernStatusPill("2 个工具")
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("工具抽屉", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                Text("识别图片与读取 PDF，点击查看详情", style = MaterialTheme.typography.labelSmall, color = ModernPanelTokens.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -4417,6 +4402,193 @@ private fun ThemeImagePreview(path: String, emptyText: String) {
     }
 }
 
+private data class ToolMessageGroup(
+    val startId: Long,
+    val messages: List<UiMessage>
+) {
+    val createdAt: Long = messages.firstOrNull()?.createdAt ?: 0L
+    val summary: String = messages.firstOrNull()?.content.orEmpty().trim().ifBlank { "工具已返回结果" }
+    val attachmentCount: Int = messages.sumOf { it.attachments.size }
+}
+
+private fun buildToolMessageGroups(messages: List<UiMessage>): List<ToolMessageGroup> {
+    val groups = mutableListOf<ToolMessageGroup>()
+    var buffer = mutableListOf<UiMessage>()
+    fun flush() {
+        if (buffer.isNotEmpty()) {
+            groups += ToolMessageGroup(startId = buffer.first().id, messages = buffer.toList())
+            buffer = mutableListOf()
+        }
+    }
+    messages.forEach { message ->
+        if (message.role == "tool") {
+            buffer += message
+        } else {
+            flush()
+        }
+    }
+    flush()
+    return groups
+}
+
+@Composable
+private fun ToolGroupDrawerRow(
+    group: ToolMessageGroup,
+    modifier: Modifier = Modifier,
+    onOpen: () -> Unit
+) {
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Surface(
+            onClick = onOpen,
+            modifier = Modifier
+                .widthIn(max = 330.dp)
+                .then(modifier),
+            shape = RoundedCornerShape(18.dp),
+            color = Color.White,
+            contentColor = ModernPanelTokens.Text,
+            border = BorderStroke(1.dp, ModernPanelTokens.Border),
+            shadowElevation = 1.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = ModernPanelTokens.AccentSoft,
+                    contentColor = ModernPanelTokens.Accent
+                ) {
+                    Text(
+                        text = "${group.messages.size} 个工具",
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = "工具抽屉",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = ModernPanelTokens.Text
+                    )
+                    Text(
+                        text = group.summary,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ModernPanelTokens.Muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    text = "查看",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = ModernPanelTokens.Accent
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolResultsDialog(
+    group: ToolMessageGroup,
+    state: ChatUiState,
+    expandedToolMessages: MutableMap<Long, Boolean>,
+    currentPreviewAudioRef: String?,
+    currentPreviewAudioDurationMs: Int,
+    currentPreviewAudioPositionMs: Int,
+    onDismiss: () -> Unit,
+    onOpenAttachment: (UiMediaAttachment) -> Unit,
+    onToggleAudioPreview: (UiMediaAttachment) -> Unit
+) {
+    val customTypeface = rememberThemeTypeface(state.themeFontFamily, state.themeCustomFontPath)
+    val themeFontFamily = themeFontFamilyFor(state.themeFontFamily)
+    val messageFontSize = state.themeMessageFontSizeSp.coerceIn(12f, 20f).sp
+    val lineMultiplier = state.themeMessageLineHeightMultiplier.coerceIn(1f, 1.7f)
+    val lineHeight = (state.themeMessageFontSizeSp.coerceIn(12f, 20f) * lineMultiplier).sp
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color.White,
+        shape = RoundedCornerShape(24.dp),
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("工具抽屉", fontWeight = FontWeight.ExtraBold, color = ModernPanelTokens.Text)
+                Text(
+                    "${group.messages.size} 个工具结果" + if (group.attachmentCount > 0) " · ${group.attachmentCount} 个附件" else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ModernPanelTokens.Muted
+                )
+            }
+        },
+        text = {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 520.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(group.messages, key = { it.id }) { message ->
+                    val expanded = expandedToolMessages[message.id] == true
+                    val fullContent = message.expandedContent?.takeIf { it.isNotBlank() } ?: message.content
+                    ModernSectionCard(
+                        title = "工具结果",
+                        subtitle = message.content.ifBlank { "点击展开查看完整输出" }.take(120)
+                    ) {
+                        ModernSecondaryButton(
+                            text = if (expanded) "收起内容" else "展开完整内容",
+                            onClick = { expandedToolMessages[message.id] = !expanded },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (expanded) {
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = ModernPanelTokens.CardSoft,
+                                border = BorderStroke(1.dp, ModernPanelTokens.Border)
+                            ) {
+                                Box(Modifier.padding(12.dp)) {
+                                    MarkdownText(
+                                        markdown = fullContent,
+                                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                            fontSize = messageFontSize,
+                                            lineHeight = lineHeight,
+                                            fontFamily = themeFontFamily
+                                        ),
+                                        inlineCodeBackground = Color.White.copy(alpha = 0.78f),
+                                        quoteBackground = Color.White.copy(alpha = 0.62f),
+                                        codeBlockBackground = Color(0xFFF5F7FB),
+                                        contentColor = ModernPanelTokens.Text,
+                                        lineHeightMultiplier = lineMultiplier,
+                                        typeface = customTypeface
+                                    )
+                                }
+                            }
+                        }
+                        if (message.attachments.isNotEmpty()) {
+                            MediaAttachmentList(
+                                attachments = message.attachments,
+                                currentPreviewAudioRef = currentPreviewAudioRef,
+                                currentPreviewAudioDurationMs = currentPreviewAudioDurationMs,
+                                currentPreviewAudioPositionMs = currentPreviewAudioPositionMs,
+                                onOpenAttachment = onOpenAttachment,
+                                onToggleAudioPreview = onToggleAudioPreview
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            ModernPrimaryButton(text = "关闭", onClick = onDismiss)
+        }
+    )
+}
+
 @Composable
 private fun ThemedMessageBubble(
     colors: ChatBubbleColors,
@@ -4425,14 +4597,14 @@ private fun ThemedMessageBubble(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    val radius = state.themeBubbleCornerRadius.coerceIn(8f, 28f).dp
+    val radius = state.themeBubbleCornerRadius.coerceIn(14f, 24f).dp
     val shape = RoundedCornerShape(radius)
     val shadowAlpha = when (style) {
-        UiBubbleStyle.Native -> state.themeBubbleShadowAlpha.coerceIn(0f, 0.18f)
-        UiBubbleStyle.Frosted -> state.themeBubbleShadowAlpha.coerceIn(0f, 0.35f)
-        UiBubbleStyle.Water -> state.themeBubbleShadowAlpha.coerceIn(0f, 0.55f)
+        UiBubbleStyle.Native -> state.themeBubbleShadowAlpha.coerceIn(0.02f, 0.12f)
+        UiBubbleStyle.Frosted -> state.themeBubbleShadowAlpha.coerceIn(0.04f, 0.22f)
+        UiBubbleStyle.Water -> state.themeBubbleShadowAlpha.coerceIn(0.06f, 0.28f)
     }
-    val elevation = (shadowAlpha * 22f).dp
+    val elevation = (shadowAlpha * 18f).dp
     Box(
         modifier = modifier
             .shadow(elevation = elevation, shape = shape, clip = false)
@@ -4528,11 +4700,16 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBubbleGlass(
 
 private fun themedBubbleBorder(state: ChatUiState, style: UiBubbleStyle): BorderStroke {
     val alpha = when (style) {
-        UiBubbleStyle.Native -> state.themeBubbleBorderAlpha.coerceIn(0f, 0.3f)
-        UiBubbleStyle.Frosted -> state.themeBubbleBorderAlpha.coerceIn(0f, 0.75f)
-        UiBubbleStyle.Water -> state.themeBubbleBorderAlpha.coerceIn(0f, 1f)
+        UiBubbleStyle.Native -> state.themeBubbleBorderAlpha.coerceIn(0.16f, 0.42f)
+        UiBubbleStyle.Frosted -> state.themeBubbleBorderAlpha.coerceIn(0.22f, 0.78f)
+        UiBubbleStyle.Water -> state.themeBubbleBorderAlpha.coerceIn(0.30f, 0.92f)
     }
-    return BorderStroke(1.dp, Color.White.copy(alpha = alpha))
+    val edge = when (style) {
+        UiBubbleStyle.Native -> Color(0xFFDDE5F0)
+        UiBubbleStyle.Frosted -> Color(0xFFE5ECF6)
+        UiBubbleStyle.Water -> Color.White
+    }
+    return BorderStroke(1.dp, edge.copy(alpha = alpha))
 }
 
 private fun previewBubbleColors(base: Color, style: UiBubbleStyle, state: ChatUiState, isDarkTheme: Boolean): ChatBubbleColors {
@@ -4630,6 +4807,15 @@ private fun adaptiveBackgroundScrim(base: Color, imageOpacity: Float, glass: Flo
 private fun Color.luminanceEstimate(): Float {
     return (0.299f * red + 0.587f * green + 0.114f * blue).coerceIn(0f, 1f)
 }
+
+@Composable
+private fun rememberResponsiveBubbleMaxWidth(): Dp {
+    val configuration = LocalConfiguration.current
+    return remember(configuration.screenWidthDp) {
+        minOf((configuration.screenWidthDp.dp * 0.82f), 360.dp)
+    }
+}
+
 private enum class MainSurface {
     Chat,
     Settings,

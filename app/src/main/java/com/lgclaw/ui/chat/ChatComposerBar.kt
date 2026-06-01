@@ -1,11 +1,13 @@
 ﻿package com.lgclaw.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -39,8 +41,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -90,54 +98,68 @@ internal fun ChatComposerBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 2.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = 4.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
                 modifier = Modifier
                     .weight(1f)
                     .align(Alignment.CenterVertically),
-                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f),
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                tonalElevation = 2.dp,
-                shadowElevation = 6.dp,
-                shape = RoundedCornerShape(24.dp)
+                color = Color.White,
+                contentColor = Color(0xFF1F2430),
+                tonalElevation = 0.dp,
+                shadowElevation = 10.dp,
+                shape = RoundedCornerShape(26.dp),
+                border = BorderStroke(1.dp, Color(0xFFE6EAF1))
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 46.dp)
-                        .padding(start = 6.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                        .heightIn(min = 48.dp)
+                        .drawBehind {
+                            drawRoundRect(
+                                brush = Brush.linearGradient(
+                                    colors = listOf(Color(0xFFFFFFFF), Color(0xFFF7F9FC)),
+                                    start = Offset.Zero,
+                                    end = Offset(size.width, size.height)
+                                ),
+                                cornerRadius = CornerRadius(26.dp.toPx(), 26.dp.toPx())
+                            )
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(Color(0x1A6FA8FF), Color.Transparent),
+                                    center = Offset(size.width * 0.08f, size.height * 0.1f),
+                                    radius = size.maxDimension * 0.42f
+                                )
+                            )
+                        }
+                        .padding(start = 7.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onPickAttachments, modifier = Modifier.size(34.dp)) {
-                        Icon(
-                            imageVector = Icons.Rounded.AttachFile,
-                            contentDescription = "上传附件",
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.78f),
-                            modifier = Modifier.size(19.dp)
-                        )
-                    }
-                    IconButton(onClick = onPickImages, modifier = Modifier.size(34.dp)) {
-                        Icon(
-                            imageVector = Icons.Rounded.Image,
-                            contentDescription = "上传图片",
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.88f),
-                            modifier = Modifier.size(19.dp)
-                        )
-                    }
+                    ComposerToolKey(
+                        icon = Icons.Rounded.Image,
+                        contentDescription = "上传图片",
+                        accent = Color(0xFF3977F6),
+                        onClick = onPickImages
+                    )
+                    ComposerToolKey(
+                        icon = Icons.Rounded.AttachFile,
+                        contentDescription = "上传文件",
+                        accent = Color(0xFF4B5565),
+                        onClick = onPickAttachments
+                    )
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(end = 6.dp),
+                            .padding(horizontal = 6.dp),
                         contentAlignment = Alignment.TopStart
                     ) {
                         if (state.input.isBlank()) {
                             Text(
-                                text = "输入消息，或点左侧图片/附件按钮",
+                                text = "输入消息，图片和文件都可以一起发",
                                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f),
+                                color = Color(0xFF8A93A3),
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -156,9 +178,9 @@ internal fun ChatComposerBar(
                             textStyle = MaterialTheme.typography.bodyMedium.copy(
                                 fontSize = 14.sp,
                                 lineHeight = 18.sp,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                color = Color(0xFF1F2430)
                             ),
-                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            cursorBrush = SolidColor(Color(0xFF3977F6)),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -166,35 +188,35 @@ internal fun ChatComposerBar(
                     val canSend = (state.input.isNotBlank() || state.pendingAttachments.isNotEmpty()) && !state.isGenerating
                     Surface(
                         color = if (isStopState) {
-                            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f)
+                            Color(0xFFFFE8E5)
                         } else if (canSend) {
-                            MaterialTheme.colorScheme.primary
+                            Color(0xFF111827)
                         } else {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                            Color(0xFFEDEFF4)
                         },
                         shape = CircleShape,
-                        tonalElevation = if (canSend || isStopState) 2.dp else 0.dp,
-                        shadowElevation = if (canSend || isStopState) 6.dp else 0.dp
+                        tonalElevation = 0.dp,
+                        shadowElevation = if (canSend || isStopState) 8.dp else 0.dp
                     ) {
                         IconButton(
                             onClick = { if (state.isGenerating) onStopGeneration() else onSendMessage() },
                             enabled = state.isGenerating || state.input.isNotBlank() || state.pendingAttachments.isNotEmpty(),
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(34.dp)
                         ) {
                             if (isStopState) {
                                 Box(
                                     modifier = Modifier
                                         .size(12.dp)
                                         .background(
-                                            color = MaterialTheme.colorScheme.onErrorContainer,
-                                            shape = RoundedCornerShape(2.dp)
+                                            color = Color(0xFFCC3528),
+                                            shape = RoundedCornerShape(3.dp)
                                         )
                                 )
                             } else {
                                 Icon(
                                     imageVector = Icons.Rounded.KeyboardArrowUp,
                                     contentDescription = "发送",
-                                    tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary.copy(alpha = 0.72f),
+                                    tint = if (canSend) Color.White else Color(0xFF9AA3B2),
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -202,6 +224,32 @@ internal fun ChatComposerBar(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ComposerToolKey(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    accent: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.size(31.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFFF5F7FA),
+        contentColor = accent,
+        border = BorderStroke(1.dp, Color(0xFFE7EAF1))
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 31.dp)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = contentDescription, tint = accent, modifier = Modifier.size(17.dp))
         }
     }
 }
@@ -221,9 +269,11 @@ private fun PendingAttachmentStrip(
     ) {
         attachments.forEach { attachment ->
             Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.78f),
-                tonalElevation = 1.dp
+                shape = RoundedCornerShape(16.dp),
+                color = Color.White,
+                tonalElevation = 0.dp,
+                shadowElevation = 4.dp,
+                border = BorderStroke(1.dp, Color(0xFFE6EAF1))
             ) {
                 Row(
                     modifier = Modifier.padding(start = 7.dp, end = 3.dp, top = 5.dp, bottom = 5.dp),
@@ -250,13 +300,15 @@ private fun PendingAttachmentStrip(
                         Text(
                             text = attachment.fileLabel(),
                             style = MaterialTheme.typography.labelMedium,
+                            color = Color(0xFF20242D),
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = "${attachment.id} · ${attachment.mimeType.substringAfterLast('/').uppercase(java.util.Locale.US)}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f),
+                            color = Color(0xFF7B8494),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )

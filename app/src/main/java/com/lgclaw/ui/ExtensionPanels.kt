@@ -15,18 +15,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -57,24 +49,26 @@ internal fun SkillsPanel(
     var pendingDelete by remember { mutableStateOf<UiManagedSkill?>(null) }
 
     pendingDelete?.let { skill ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("删除技能") },
-            text = { Text(if (skill.source == "workspace") "确定删除技能 @${skill.name} 吗？删除后文件会从本地技能目录移除。" else "@${skill.name} 是内置技能，不能删除。可以使用右侧开关关闭它。") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (skill.source == "workspace") onDelete(skill.name)
-                        pendingDelete = null
-                    },
-                    enabled = skill.source == "workspace"
-                ) { Text("确认删除") }
+        ModernConfirmDialog(
+            title = "删除技能",
+            message = if (skill.source == "workspace") "确定删除技能 @${skill.name} 吗？删除后文件会从本地技能目录移除。" else "@${skill.name} 是内置技能，不能删除。可以使用右侧开关关闭它。",
+            confirmText = "确认删除",
+            dismissText = "取消",
+            onDismiss = { pendingDelete = null },
+            onConfirm = {
+                if (skill.source == "workspace") onDelete(skill.name)
+                pendingDelete = null
             },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } }
+            danger = true,
+            confirmEnabled = skill.source == "workspace"
         )
     }
 
-    ExtensionPanelScaffold(title = "技能中心", subtitle = "本地 SKILL.md 技能，可通过 @ 指令调用；关闭技能不会从列表消失，长按才会删除。") {
+    ExtensionPanelScaffold(
+        title = "技能中心",
+        subtitle = "本地 SKILL.md 技能，可通过 @ 指令调用；关闭技能不会从列表消失，长按才会删除。",
+        status = "${state.skills.count { it.enabled }}/${state.skills.size} 启用"
+    ) {
         item {
             ExtensionEditor(
                 name = name,
@@ -92,8 +86,13 @@ internal fun SkillsPanel(
                 }
             )
         }
+        item {
+            ModernSectionCard(title = "@ 指令提示", subtitle = "在对话输入框输入 @技能名，可以把技能说明注入当前任务。停用只会关闭调用，不会从列表里隐藏。") {
+                Text("长按自定义技能会弹出删除确认；内置技能只允许停用。", style = MaterialTheme.typography.bodySmall, color = ModernPanelTokens.Muted)
+            }
+        }
         if (state.skills.isEmpty()) {
-            item { EmptyPanelText("暂无技能。创建后可以在对话里用 @技能名 调用。") }
+            item { EmptyPanelText("暂无技能", "创建后可以在对话里用 @技能名 调用。") }
         }
         items(state.skills, key = { it.name }) { skill ->
             ExtensionRow(
@@ -119,7 +118,11 @@ internal fun ToolsPanel(
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var prompt by remember { mutableStateOf("") }
-    ExtensionPanelScaffold(title = "工具中心", subtitle = "动态工具会实时注册到 AI 工具目录，下一轮对话即可使用。") {
+    ExtensionPanelScaffold(
+        title = "工具中心",
+        subtitle = "动态工具会实时注册到 AI 工具目录，下一轮对话即可使用。",
+        status = "${state.dynamicTools.count { it.enabled }}/${state.dynamicTools.size} 启用"
+    ) {
         item {
             ExtensionEditor(
                 name = name,
@@ -138,7 +141,7 @@ internal fun ToolsPanel(
             )
         }
         if (state.dynamicTools.isEmpty()) {
-            item { EmptyPanelText("暂无动态工具。你可以让 AI 规划，也可以手动创建。") }
+            item { EmptyPanelText("暂无动态工具", "你可以让 AI 规划，也可以手动创建。") }
         }
         items(state.dynamicTools, key = { it.name }) { tool ->
             ExtensionRow(
@@ -157,10 +160,14 @@ internal fun MemoryPanel(state: ChatUiState, onRefresh: () -> Unit) {
     LaunchedEffect(Unit) { onRefresh() }
     var selectedMemory by remember { mutableStateOf<UiCompressedMemory?>(null) }
     selectedMemory?.let { memory ->
-        AlertDialog(
-            onDismissRequest = { selectedMemory = null },
-            title = { Text("压缩记忆详情") },
-            text = {
+        ModernConfirmDialog(
+            title = "压缩记忆详情",
+            message = "编号 ${memory.id}，创建于 ${formatPanelTime(memory.createdAt)}。",
+            confirmText = "关闭",
+            dismissText = "返回",
+            onDismiss = { selectedMemory = null },
+            onConfirm = { selectedMemory = null },
+            content = {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -173,8 +180,9 @@ internal fun MemoryPanel(state: ChatUiState, onRefresh: () -> Unit) {
                     Text("算法：${memory.algorithm}", style = MaterialTheme.typography.bodySmall)
                     Text("消息：${memory.messageCount} 条；原文 ${memory.originalChars} 字符；压缩 ${memory.compressedBytes} 字节", style = MaterialTheme.typography.bodySmall)
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                        color = ModernPanelTokens.CardSoft,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, ModernPanelTokens.Border)
                     ) {
                         Text(
                             text = memory.summary,
@@ -183,60 +191,36 @@ internal fun MemoryPanel(state: ChatUiState, onRefresh: () -> Unit) {
                         )
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { selectedMemory = null }) { Text("关闭") }
             }
         )
     }
     ExtensionPanelScaffold(
         title = "记忆中心",
-        subtitle = "当前有效上下文 ${"%.1f".format(Locale.US, state.currentConversationK)}K；已压缩记忆会作为摘要继续注入。"
+        subtitle = "当前有效上下文 ${"%.1f".format(Locale.US, state.currentConversationK)}K；已压缩记忆会作为摘要继续注入。",
+        status = "${state.compressedMemories.size} 条记忆"
     ) {
+        item {
+            ModernSectionCard(title = "K 值状态", subtitle = "顶部 K 值来自真实消息与压缩记忆统计，主动压缩后会同步刷新。") {
+                ModernStatusPill(text = "当前 ${"%.1f".format(Locale.US, state.currentConversationK)}K")
+            }
+        }
         if (state.compressedMemories.isEmpty()) {
-            item { EmptyPanelText("暂无压缩记忆记录。达到阈值并触发压缩后会显示在这里。") }
+            item { EmptyPanelText("暂无压缩记忆", "达到阈值并触发压缩后会显示在这里。") }
         }
         items(state.compressedMemories, key = { it.id }) { memory ->
-            ElevatedCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .combinedClickable(onClick = { selectedMemory = memory }),
-                shape = RoundedCornerShape(8.dp),
-                colors = CardDefaults.elevatedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
-                )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 9.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(999.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Text(
-                            text = "${(memory.summary.length / 1000.0).coerceAtLeast(0.1).let { "%.1f".format(Locale.US, it) }}K",
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("压缩记忆 ${memory.id}", fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            "${formatPanelTime(memory.createdAt)}  ${memory.algorithm}  ${memory.messageCount} 条",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    Text("查看", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                }
-            }
+            ModernListRow(
+                title = "压缩记忆 ${memory.id}",
+                subtitle = "${formatPanelTime(memory.createdAt)}  ${memory.algorithm}  ${memory.messageCount} 条",
+                body = memory.summary.take(96),
+                modifier = Modifier.fillMaxWidth(),
+                leading = {
+                    ModernStatusPill("${(memory.summary.length / 1000.0).coerceAtLeast(0.1).let { "%.1f".format(Locale.US, it) }}K")
+                },
+                trailing = {
+                    Text("查看", style = MaterialTheme.typography.labelMedium, color = ModernPanelTokens.Accent)
+                },
+                onClick = { selectedMemory = memory }
+            )
         }
     }
 }
@@ -245,21 +229,10 @@ internal fun MemoryPanel(state: ChatUiState, onRefresh: () -> Unit) {
 private fun ExtensionPanelScaffold(
     title: String,
     subtitle: String,
+    status: String? = null,
     content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit
 ) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        content()
-        item { Spacer(Modifier.height(24.dp)) }
-    }
+    ModernPanelScaffold(title = title, subtitle = subtitle, status = status, content = content)
 }
 
 @Composable
@@ -275,13 +248,15 @@ private fun ExtensionEditor(
     onBodyChange: (String) -> Unit,
     onSave: () -> Unit
 ) {
-    Surface(shape = RoundedCornerShape(8.dp), tonalElevation = 1.dp) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedTextField(value = name, onValueChange = onNameChange, label = { Text(nameLabel) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = description, onValueChange = onDescriptionChange, label = { Text("描述") }, singleLine = false, maxLines = 2, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = body, onValueChange = onBodyChange, label = { Text(bodyLabel) }, singleLine = false, minLines = 3, maxLines = 6, modifier = Modifier.fillMaxWidth())
-            Button(onClick = onSave, enabled = name.isNotBlank() && body.isNotBlank()) { Text(buttonLabel) }
-        }
+    ModernSectionCard(title = "创建", subtitle = "保存后立即写入本地，下一轮对话可用。") {
+        ModernTextField(value = name, onValueChange = onNameChange, label = nameLabel, singleLine = true)
+        ModernTextField(value = description, onValueChange = onDescriptionChange, label = "描述", maxLines = 2)
+        ModernTextField(value = body, onValueChange = onBodyChange, label = bodyLabel, minLines = 3, maxLines = 6)
+        ModernPrimaryButton(
+            text = buttonLabel,
+            onClick = onSave,
+            enabled = name.isNotBlank() && body.isNotBlank()
+        )
     }
 }
 
@@ -295,32 +270,21 @@ private fun ExtensionRow(
     onEnabledChange: (Boolean) -> Unit,
     onLongClick: (() -> Unit)? = null
 ) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp,
-        modifier = Modifier.combinedClickable(onClick = {}, onLongClick = onLongClick)
-    ) {
-        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(body, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
-            }
-            Spacer(Modifier.width(12.dp))
-            Switch(checked = enabled, onCheckedChange = onEnabledChange)
+    ModernListRow(
+        title = title,
+        subtitle = subtitle,
+        body = body,
+        modifier = Modifier.combinedClickable(onClick = {}, onLongClick = onLongClick),
+        selected = enabled,
+        trailing = {
+            ModernSwitch(checked = enabled, onCheckedChange = onEnabledChange)
         }
-    }
+    )
 }
 
 @Composable
-private fun EmptyPanelText(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(16.dp)
-    )
+private fun EmptyPanelText(title: String, subtitle: String) {
+    ModernEmptyState(title = title, subtitle = subtitle)
 }
 
 internal fun skillDisplayDescription(name: String, rawDescription: String): String {

@@ -1145,10 +1145,28 @@ internal fun SettingsContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .background(ModernPanelTokens.Page)
+            .padding(horizontal = 12.dp, vertical = 12.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        ModernHeroCard(
+            title = page.title(state.settingsUseChinese),
+            subtitle = page.subtitle(state.settingsUseChinese).ifBlank {
+                "集中管理模型、权限、运行与自动化能力。"
+            },
+            status = when (page) {
+                SettingsPanelPage.Home -> "控制台"
+                SettingsPanelPage.Provider -> if (state.settingsProviderConfigs.isNotEmpty()) "${state.settingsProviderConfigs.size} 个供应商" else "未配置"
+                SettingsPanelPage.Runtime -> "即时生效"
+                SettingsPanelPage.Permissions -> "${permissionsDashboard.readyCount}/${permissionsDashboard.totalCount} 就绪"
+                SettingsPanelPage.AlwaysOn -> if (state.alwaysOnEnabled) "已开启" else "未开启"
+                SettingsPanelPage.Cron -> if (state.settingsCronEnabled) "已开启" else "未开启"
+                SettingsPanelPage.Heartbeat -> if (state.settingsHeartbeatEnabled) "已开启" else "未开启"
+                SettingsPanelPage.Mcp -> if (state.settingsMcpEnabled) "已开启" else "未开启"
+                else -> "LGClaw"
+            }
+        )
         when (page) {
             SettingsPanelPage.Home -> {
                 SettingsStatusOverview(
@@ -2516,9 +2534,10 @@ internal fun SettingsContent(
                     dismissOnBackPress = true,
                     dismissOnClickOutside = true
                 ),
-                containerColor = MaterialTheme.colorScheme.surface,
-                titleContentColor = MaterialTheme.colorScheme.onSurface,
-                textContentColor = MaterialTheme.colorScheme.onSurface,
+                containerColor = Color.White,
+                titleContentColor = ModernPanelTokens.Text,
+                textContentColor = ModernPanelTokens.Text,
+                shape = RoundedCornerShape(24.dp),
                 title = { Text(confirmation.title) },
                 text = { DialogBodyText(confirmation.message) },
                 confirmButton = {
@@ -2529,15 +2548,24 @@ internal fun SettingsContent(
                             confirmedAction()
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
-                            contentColor = MaterialTheme.colorScheme.onError
-                        )
+                            containerColor = ModernPanelTokens.Danger,
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(999.dp)
                     ) {
                         Text(confirmation.confirmLabel)
                     }
                 },
                 dismissButton = {
-                    OutlinedButton(onClick = { settingsConfirmationState = null }) {
+                    OutlinedButton(
+                        onClick = { settingsConfirmationState = null },
+                        shape = RoundedCornerShape(999.dp),
+                        border = BorderStroke(1.dp, ModernPanelTokens.Border),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color.White,
+                            contentColor = ModernPanelTokens.Text
+                        )
+                    ) {
                         Text(tr("Cancel", "取消"))
                     }
                 }

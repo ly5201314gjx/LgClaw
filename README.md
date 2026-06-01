@@ -1,8 +1,8 @@
 <div align="center">
-  <img src="./docs/assets/brand/lgclaw-removebg-preview.png" alt="LGClaw" width="92" />
+  <img src="./docs/assets/brand/lgclaw-removebg-preview.png" alt="LGClaw" width="112" />
   <h1>LGClaw</h1>
-  <p><strong>A mobile AI agent workspace for Android.</strong></p>
-  <p>Chat, see images, plan work, call tools, manage skills, bind agents, remember context, and shape the whole experience from your phone.</p>
+  <p><strong>A beautiful Android AI agent workspace that feels close, capable, and alive.</strong></p>
+  <p>Chat with models, read images, plan before acting, call tools, bind role cards, keep memory, switch providers, and tune the whole experience from one phone.</p>
 </div>
 
 <div align="center">
@@ -10,7 +10,7 @@
 [![Android](https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](#)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Compose-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](#)
 [![Local First](https://img.shields.io/badge/Local--First-Agent%20Runtime-0A84FF?style=for-the-badge)](#)
-[![Download APK](https://img.shields.io/badge/Download-LGClaw--Pro--debug.apk-f39c12?style=for-the-badge&logo=android&logoColor=white)](./LGClaw-Pro-debug.apk)
+[![Download APK](https://img.shields.io/badge/Download-v0.1.7%20APK-f39c12?style=for-the-badge&logo=android&logoColor=white)](./LGClaw-Pro-debug.apk)
 
 </div>
 
@@ -22,11 +22,22 @@
 
 ![LGClaw cover](./docs/assets/site/demos/cover-lgclaw.png)
 
+## Latest Update
+
+**v0.1.7** gives LGClaw a sharper identity and a cleaner first impression:
+
+- New app icon, launcher icon, in-app mark, and startup splash animation based on the latest LGClaw artwork.
+- Chat home header now leaves the center blank, keeping the conversation calmer while retaining quick actions.
+- Modern message bubbles, compact tool drawer, white-glass settings panels, and refreshed theme presets remain included.
+- The latest install package is available as [`LGClaw-Pro-debug.apk`](./LGClaw-Pro-debug.apk).
+
+See the full [CHANGELOG](./CHANGELOG.md).
+
 ## Why LGClaw
 
 Most AI apps are still just a chat box. You ask, it answers, the context fades, and the model is left alone to do everything.
 
-LGClaw is built around a different feeling: an AI assistant that can carry memory, roles, plans, skills, tools, attachments, and model choices with it. It can draft a plan before acting. It can bind an agent profile or role card to a conversation. It can switch providers on the fly. And when the active model supports vision, uploaded images are sent as real multimodal input instead of being reduced to a filename.
+LGClaw is built around a different feeling: an assistant that carries memory, roles, plans, skills, tools, attachments, and model choices with it. It can draft a plan before acting. It can bind an agent profile or role card to a conversation. It can switch providers on the fly. And when the active model supports vision, uploaded images are sent as real multimodal input instead of being reduced to a filename.
 
 It is still an Android app, but it behaves more like a pocket-sized AI control room: close, practical, extensible, and comfortable enough to use every day.
 
@@ -44,6 +55,7 @@ It is still an Android app, but it behaves more like a pocket-sized AI control r
 - **Attachment Chat**: images, PDFs, Word documents, text files, and common local documents.
 - **Theme Studio**: glass bubbles, water-glass styling, fonts, text size, line height, chat backgrounds, sidebar backgrounds, opacity, blur, and readability masks.
 - **120Hz-friendly UI**: the Android window requests the highest supported refresh mode for smoother scrolling and animation.
+- **Polished identity**: updated LGClaw icon, splash animation, GitHub homepage assets, and a calmer chat header.
 
 ## Install
 

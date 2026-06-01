@@ -485,16 +485,16 @@ internal fun LGClawSwitch(
         onCheckedChange = onCheckedChange,
         enabled = enabled,
         colors = SwitchDefaults.colors(
-            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-            checkedTrackColor = MaterialTheme.colorScheme.primary,
-            checkedBorderColor = MaterialTheme.colorScheme.primary,
-            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            uncheckedTrackColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-            uncheckedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.32f),
-            disabledCheckedThumbColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f),
-            disabledCheckedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
-            disabledUncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-            disabledUncheckedTrackColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
+            checkedThumbColor = Color.White,
+            checkedTrackColor = ModernPanelTokens.Accent,
+            checkedBorderColor = ModernPanelTokens.Accent,
+            uncheckedThumbColor = Color.White,
+            uncheckedTrackColor = Color(0xFFDDE3EC),
+            uncheckedBorderColor = Color(0xFFDDE3EC),
+            disabledCheckedThumbColor = Color.White.copy(alpha = 0.7f),
+            disabledCheckedTrackColor = ModernPanelTokens.Accent.copy(alpha = 0.45f),
+            disabledUncheckedThumbColor = Color.White.copy(alpha = 0.7f),
+            disabledUncheckedTrackColor = Color(0xFFE8ECF2)
         )
     )
 }
@@ -531,16 +531,18 @@ internal fun SettingsSectionCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Surface(
-        tonalElevation = 1.dp,
-        shape = RoundedCornerShape(14.dp),
+        tonalElevation = 0.dp,
+        shadowElevation = 2.dp,
+        shape = RoundedCornerShape(20.dp),
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.34f),
-        contentColor = MaterialTheme.colorScheme.onSurface
+        color = ModernPanelTokens.Card,
+        contentColor = ModernPanelTokens.Text,
+        border = BorderStroke(1.dp, ModernPanelTokens.Border)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 12.dp),
+                .padding(horizontal = 13.dp, vertical = 13.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
@@ -557,13 +559,14 @@ internal fun SettingsSectionCard(
                     Text(
                         text = uiLabel(title),
                         style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Bold,
+                        color = ModernPanelTokens.Text
                     )
                     subtitle?.takeIf { it.isNotBlank() }?.let {
                         Text(
                             text = uiLabel(it),
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = ModernPanelTokens.Muted
                         )
                     }
                 }
@@ -591,21 +594,18 @@ internal fun SettingsActionButton(
         onClick = onClick,
         enabled = enabled,
         colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.32f),
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            disabledContainerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.14f),
-            disabledContentColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.42f)
+            containerColor = Color.White,
+            contentColor = ModernPanelTokens.Text,
+            disabledContainerColor = ModernPanelTokens.Border.copy(alpha = 0.45f),
+            disabledContentColor = ModernPanelTokens.Muted
         ),
         border = BorderStroke(
             1.dp,
-            if (enabled) {
-                MaterialTheme.colorScheme.outline.copy(alpha = 0.32f)
-            } else {
-                MaterialTheme.colorScheme.outline.copy(alpha = 0.16f)
-            }
+            if (enabled) ModernPanelTokens.Border else ModernPanelTokens.Border.copy(alpha = 0.56f)
         ),
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-        modifier = Modifier.height(32.dp)
+        modifier = Modifier.height(34.dp),
+        shape = RoundedCornerShape(999.dp)
     ) {
         Icon(
             imageVector = icon,
@@ -625,10 +625,11 @@ internal fun SettingsHomeItemRow(
     Surface(
         onClick = onClick,
         tonalElevation = 0.dp,
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.42f),
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.10f)),
+        shadowElevation = 1.dp,
+        shape = RoundedCornerShape(16.dp),
+        color = ModernPanelTokens.CardSoft,
+        contentColor = ModernPanelTokens.Text,
+        border = BorderStroke(1.dp, ModernPanelTokens.Border),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -645,12 +646,13 @@ internal fun SettingsHomeItemRow(
                 Text(
                     text = item.title,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.Bold,
+                    color = ModernPanelTokens.Text
                 )
                 Text(
                     text = item.subtitle,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = ModernPanelTokens.Muted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -659,7 +661,7 @@ internal fun SettingsHomeItemRow(
                 imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f)
+                tint = ModernPanelTokens.Accent
             )
         }
     }
@@ -673,7 +675,7 @@ internal fun SettingsHomeGroupCard(
     SettingsSectionCard(
         title = group.title,
         subtitle = group.subtitle,
-        titleStartPadding = 12.dp
+        titleStartPadding = 0.dp
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -696,14 +698,14 @@ internal fun PermissionStatusBadge(
     partial: Boolean = false
 ) {
     val containerColor = when {
-        granted -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.62f)
-        partial -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.58f)
-        else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.44f)
+        granted -> ModernPanelTokens.AccentSoft
+        partial -> Color(0xFFFFF5E1)
+        else -> ModernPanelTokens.DangerSoft
     }
     val contentColor = when {
-        granted -> MaterialTheme.colorScheme.onPrimaryContainer
-        partial -> MaterialTheme.colorScheme.onTertiaryContainer
-        else -> MaterialTheme.colorScheme.onErrorContainer
+        granted -> ModernPanelTokens.Accent
+        partial -> Color(0xFF9B6400)
+        else -> ModernPanelTokens.Danger
     }
     Surface(
         shape = RoundedCornerShape(999.dp),
@@ -727,9 +729,9 @@ internal fun PermissionInlineAction(
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(999.dp),
-        color = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.18f))
+        color = Color.White,
+        contentColor = ModernPanelTokens.Text,
+        border = BorderStroke(1.dp, ModernPanelTokens.Border)
     ) {
         Text(
             text = uiLabel(text),
@@ -999,30 +1001,32 @@ internal fun DialogBodyText(text: String) {
 
 @Composable
 internal fun settingsTextFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedContainerColor = Color.Transparent,
-    unfocusedContainerColor = Color.Transparent,
-    disabledContainerColor = Color.Transparent,
-    focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.72f),
-    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f),
-    disabledBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f),
-    focusedLabelColor = MaterialTheme.colorScheme.primary,
-    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.44f),
-    cursorColor = MaterialTheme.colorScheme.primary,
-    focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.74f),
-    unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.68f)
+    focusedContainerColor = Color.White,
+    unfocusedContainerColor = Color.White,
+    disabledContainerColor = Color.White,
+    focusedBorderColor = ModernPanelTokens.Accent.copy(alpha = 0.72f),
+    unfocusedBorderColor = ModernPanelTokens.Border,
+    disabledBorderColor = ModernPanelTokens.Border.copy(alpha = 0.58f),
+    focusedLabelColor = ModernPanelTokens.Accent,
+    unfocusedLabelColor = ModernPanelTokens.Muted,
+    disabledLabelColor = ModernPanelTokens.Muted.copy(alpha = 0.44f),
+    cursorColor = ModernPanelTokens.Accent,
+    focusedPlaceholderColor = ModernPanelTokens.Muted.copy(alpha = 0.74f),
+    unfocusedPlaceholderColor = ModernPanelTokens.Muted.copy(alpha = 0.68f),
+    focusedTextColor = ModernPanelTokens.Text,
+    unfocusedTextColor = ModernPanelTokens.Text
 )
 
 internal fun settingsTextFieldShape() = RoundedCornerShape(18.dp)
 
 @Composable
 internal fun settingsFieldSurfaceColor(): Color =
-    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f)
+    Color.White
 
 @Composable
 internal fun settingsDropdownMenuBorder() = BorderStroke(
     width = 1.dp,
-    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
+    color = ModernPanelTokens.Border
 )
 
 @Composable
@@ -1089,15 +1093,15 @@ internal fun SettingsSelectField(
             .fillMaxWidth()
             .padding(top = 8.dp)
     ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = settingsTextFieldShape(),
-            color = settingsFieldSurfaceColor(),
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            border = BorderStroke(
-                1.dp,
-                MaterialTheme.colorScheme.outline.copy(alpha = 0.20f)
-            )
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = settingsTextFieldShape(),
+        color = settingsFieldSurfaceColor(),
+        contentColor = ModernPanelTokens.Text,
+        border = BorderStroke(
+            1.dp,
+            ModernPanelTokens.Border
+        )
         ) {
             Row(
                 modifier = Modifier
@@ -1111,7 +1115,7 @@ internal fun SettingsSelectField(
                     text = value,
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = ModernPanelTokens.Text,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -1142,12 +1146,13 @@ internal fun SettingsAdvancedSection(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Surface(
-        tonalElevation = 1.dp,
-        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 0.dp,
+        shadowElevation = 2.dp,
+        shape = RoundedCornerShape(20.dp),
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.40f),
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.14f))
+        color = ModernPanelTokens.Card,
+        contentColor = ModernPanelTokens.Text,
+        border = BorderStroke(1.dp, ModernPanelTokens.Border)
     ) {
         Column(
             modifier = Modifier
@@ -1168,13 +1173,13 @@ internal fun SettingsAdvancedSection(
                         imageVector = Icons.Outlined.Settings,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = ModernPanelTokens.Accent
                     )
                     Text(
                         text = tr("Advanced", ""),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = ModernPanelTokens.Text
                     )
                 }
                 Spacer(modifier = Modifier.weight(1f))
@@ -1191,11 +1196,11 @@ internal fun SettingsAdvancedSection(
                 Text(
                     text = uiLabel(it),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = ModernPanelTokens.Muted
                 )
             }
             if (expanded) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f))
+                HorizontalDivider(color = ModernPanelTokens.Border)
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1214,9 +1219,10 @@ internal fun SettingsAdvancedOptionCard(
 ) {
     Surface(
         tonalElevation = 0.dp,
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
+        shadowElevation = 1.dp,
+        shape = RoundedCornerShape(18.dp),
+        color = ModernPanelTokens.CardSoft,
+        border = BorderStroke(1.dp, ModernPanelTokens.Border),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -1233,12 +1239,12 @@ internal fun SettingsAdvancedOptionCard(
                     text = uiLabel(title),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = ModernPanelTokens.Text
                 )
                 Text(
                     text = uiLabel(description),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = ModernPanelTokens.Muted
                 )
             }
             Column(

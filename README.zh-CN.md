@@ -1,8 +1,8 @@
 <div align="center">
-  <img src="./docs/assets/brand/lgclaw-removebg-preview.png" alt="LGClaw" width="92" />
+  <img src="./docs/assets/brand/lgclaw-removebg-preview.png" alt="LGClaw" width="112" />
   <h1>LGClaw</h1>
-  <p><strong>把一台 Android 手机，变成可以随身携带的 AI 智能体工作台。</strong></p>
-  <p>聊天、读图、计划、工具、技能、记忆、角色卡、智能体、主题和多模型切换，都收进一个更顺手的移动端 AI 系统里。</p>
+  <p><strong>把一台 Android 手机，变成好看、顺手、能长期工作的 AI 智能体工作台。</strong></p>
+  <p>聊天、读图、计划、工具、技能、记忆、角色卡、智能体、主题和多模型切换，都收进一个更舒服的移动端 AI 系统里。</p>
 </div>
 
 <div align="center">
@@ -10,7 +10,7 @@
 [![Android](https://img.shields.io/badge/平台-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](#)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Compose-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](#)
 [![本地优先](https://img.shields.io/badge/本地优先-Agent%20Runtime-0A84FF?style=for-the-badge)](#)
-[![下载 APK](https://img.shields.io/badge/下载-LGClaw--Pro--debug.apk-f39c12?style=for-the-badge&logo=android&logoColor=white)](./LGClaw-Pro-debug.apk)
+[![下载 APK](https://img.shields.io/badge/下载-v0.1.7%20APK-f39c12?style=for-the-badge&logo=android&logoColor=white)](./LGClaw-Pro-debug.apk)
 
 </div>
 
@@ -21,6 +21,17 @@
 </p>
 
 ![LGClaw cover](./docs/assets/site/demos/cover-lgclaw.png)
+
+## 最新更新
+
+**v0.1.7** 让 LGClaw 的第一眼更像它自己：
+
+- 使用新的 LGClaw 图作为桌面图标、圆形图标、App 内标识和开屏动画。
+- 对话首页顶部中间不再显示 LGClaw 和会话名，保留呼吸感，让视线回到聊天本身。
+- 现代消息气泡、工具抽屉、纯白玻璃设置页和浅色主题预设继续保留。
+- 最新安装包已放在仓库根目录：[`LGClaw-Pro-debug.apk`](./LGClaw-Pro-debug.apk)。
+
+完整记录见 [CHANGELOG](./CHANGELOG.md)。
 
 ## 为什么做 LGClaw
 
@@ -44,6 +55,7 @@ LGClaw 想做的是另一件事：让手机里的 AI 不只是“回答问题”
 - **附件对话**：支持图片、PDF、Word、文本等附件。图片走视觉链路，文档走文本摘录和附件摘要链路。
 - **主题工作台**：玻璃气泡、水玻璃、字体、字号、行距、聊天背景、侧边栏背景、透明度、模糊和遮罩都可以调。
 - **120Hz 适配**：窗口会请求设备支持的高刷新模式，让滚动和动画更顺。
+- **全新视觉身份**：新图标、新开屏动画、新 GitHub 首页资产，以及更安静的聊天顶部。
 
 ## 安装
 
