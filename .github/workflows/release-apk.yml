@@ -1,0 +1,66 @@
+name: Release APK
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and publish LGClaw APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
+
+      - name: Build and verify debug APK
+        run: ./gradlew assembleDebug testDebugUnitTest lintDebug --stacktrace
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk LGClaw-Pro-debug.apk
+          sha256sum LGClaw-Pro-debug.apk | tee LGClaw-Pro-debug.apk.sha256
+          cat > RELEASE_NOTES.md <<'EOF'
+          ## LGClaw v0.1.9
+
+          这版重点把内嵌终端真正做稳：APK 已内置 arm64 终端资源，并调整为适合终端类应用的 Android target，让 Node.js/npm、Python/pip/uv、Git、SSH 和 shell 工具可以在 LGClaw 私有运行时里执行。
+
+          ### 本次修复
+
+          - 修复终端一启动就闪退/初始化失败的问题，启动异常会变成中文状态输出。
+          - 修复迷你终端浮窗 X 按钮：关闭浮窗不会误取消正在运行的任务。
+          - 强化终端 shell 启动兜底逻辑，遇到机型限制时会清楚提示原因。
+          - Release 附件由 GitHub Actions 云端构建并上传，下载页会稳定显示最新版 APK。
+
+          ### 验证
+
+          - `assembleDebug testDebugUnitTest lintDebug --stacktrace` 已通过。
+          - Release 附带 `LGClaw-Pro-debug.apk.sha256` 供校验。
+          EOF
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: LGClaw v0.1.9 - 稳定内嵌终端运行时
+          body_path: RELEASE_NOTES.md
+          files: |
+            LGClaw-Pro-debug.apk
+            LGClaw-Pro-debug.apk.sha256
