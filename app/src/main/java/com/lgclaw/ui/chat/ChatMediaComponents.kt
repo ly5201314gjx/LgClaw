@@ -255,28 +255,41 @@ internal fun DocumentAttachmentCard(
     onOpenAttachment: (UiMediaAttachment) -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+        shape = RoundedCornerShape(14.dp),
+        color = Color.White,
+        tonalElevation = 0.dp,
+        shadowElevation = 3.dp,
+        border = BorderStroke(1.dp, Color(0xFFE6EAF1)),
         modifier = Modifier
-            .fillMaxWidth()
+            .widthIn(max = 260.dp)
             .clickable { onOpenAttachment(attachment) }
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Rounded.Description,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(22.dp)
-            )
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = Color(0xFFF4F7FB),
+                border = BorderStroke(1.dp, Color(0xFFE7EAF1)),
+                modifier = Modifier.size(34.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.Description,
+                        contentDescription = null,
+                        tint = Color(0xFF3977F6),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
             Column(Modifier.weight(1f)) {
                 Text(
                     text = attachment.label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF171A20),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -286,7 +299,7 @@ internal fun DocumentAttachmentCard(
                         attachment.mimeType.takeIf { it.isNotBlank() }
                     ).filterNotNull().joinToString(" · ").ifBlank { "文件" },
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color(0xFF7B8494),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -351,7 +364,7 @@ internal fun ImageAttachmentCard(
                     modifier = Modifier.weight(1f)
                 )
                 TextButton(onClick = { onOpenAttachment(attachment) }) {
-                    Text(uiLabel("Preview"))
+                    Text("查看")
                 }
             }
         }
@@ -626,3 +639,4 @@ internal fun mediaMimeTypeForKind(kind: UiMediaKind): String {
         UiMediaKind.Document -> "*/*"
     }
 }
+

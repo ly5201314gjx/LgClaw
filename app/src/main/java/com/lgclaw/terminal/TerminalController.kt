@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.IOException
@@ -33,6 +35,7 @@ object TerminalController {
     private val activeSessions = ConcurrentHashMap<String, String>()
     private val sessionOutputBuffers = ConcurrentHashMap<String, ArrayDeque<TerminalOutputLine>>()
     private val developerToolNames = setOf("node", "npm", "python", "pip", "git", "ssh", "uv")
+    private val layoutMutex = Mutex()
 
     @Volatile
     private var context: Context? = null
@@ -49,7 +52,7 @@ object TerminalController {
         if (!initialized) initialized = true
         scope.launch {
             runCatching {
-                refreshToolchainStatus()
+                refreshToolchainStatus(prepareIfMissing = false)
                 refreshOverlayPermission(appContext)
                 refreshWorkspaces()
             }.onFailure { error ->
@@ -65,11 +68,16 @@ object TerminalController {
         _state.update { it.copy(overlayPermissionGranted = granted) }
     }
 
-    suspend fun refreshToolchainStatus(): TerminalToolchainStatus = withContext(Dispatchers.IO) {
+    suspend fun refreshToolchainStatus(prepareIfMissing: Boolean = true): TerminalToolchainStatus = withContext(Dispatchers.IO) {
         runCatching {
             val appContext = requireContext()
             val manager = TerminalToolchainManager(appContext)
-            val status = manager.ensureLayout()
+            val status = if (prepareIfMissing) {
+                layoutMutex.withLock { manager.ensureLayout() }
+            } else {
+                manager.ensureBaseDirs()
+                manager.inspect()
+            }
             _state.update {
                 it.copy(
                     ready = status.ready,
@@ -153,7 +161,36 @@ object TerminalController {
         val appContext = requireContext()
         val manager = TerminalToolchainManager(appContext)
         return runCatching {
-            manager.ensureLayout()
+            appendStatusLine(sid, "正在准备终端环境")
+            _state.update {
+                it.copy(
+                    installing = true,
+                    installProgress = 0.08f,
+                    installMessage = "正在检查内嵌 Linux 运行时"
+                )
+            }
+            val layoutStatus = layoutMutex.withLock {
+                _state.update {
+                    it.copy(
+                        installing = true,
+                        installProgress = 0.35f,
+                        installMessage = "首次使用正在解包终端环境，请稍等"
+                    )
+                }
+                manager.ensureLayout()
+            }
+            _state.update {
+                it.copy(
+                    ready = layoutStatus.ready,
+                    toolchainRoot = layoutStatus.toolchainRoot,
+                    shellPath = layoutStatus.shellPath,
+                    installedExecutables = layoutStatus.installedExecutables,
+                    missingExecutables = layoutStatus.missingExecutables,
+                    installing = false,
+                    installProgress = 0f,
+                    installMessage = ""
+                )
+            }
             val workspace = request.cwd?.trim()?.takeIf { it.isNotBlank() }?.let(::File)
                 ?: manager.workspaceDir(sid)
             workspace.mkdirs()
@@ -213,6 +250,7 @@ object TerminalController {
             appendResult(result)
             runCatching { refreshToolchainStatus() }
             refreshWorkspaces()
+            _state.update { it.copy(installing = false, installProgress = 0f, installMessage = "") }
             result
         }.getOrElse { error ->
             activeProcesses.remove(sid)?.let { runCatching { it.destroy() } }
@@ -232,6 +270,7 @@ object TerminalController {
                 error = message
             )
             appendResult(result)
+            _state.update { it.copy(installing = false, installProgress = 0f, installMessage = "") }
             result
         }
     }
@@ -312,7 +351,7 @@ object TerminalController {
         if (installingCorePackages) return
         val appContext = context ?: return
         val manager = TerminalToolchainManager(appContext)
-        val status = manager.ensureLayout()
+        val status = layoutMutex.withLock { manager.ensureLayout() }
         val missingDeveloperTools = status.missingExecutables.intersect(developerToolNames)
         if (missingDeveloperTools.isEmpty() && !force) return
         if (missingDeveloperTools.isEmpty()) {

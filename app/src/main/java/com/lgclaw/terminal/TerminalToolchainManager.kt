@@ -25,7 +25,7 @@ class TerminalToolchainManager(
     private val termuxPrefix: File get() = AppStoragePaths.terminalPrefixDir(appContext)
     private val termuxHome: File get() = AppStoragePaths.terminalTermuxHomeDir(appContext)
 
-    fun ensureLayout(): TerminalToolchainStatus {
+    fun ensureBaseDirs() {
         AppStoragePaths.terminalDir(appContext)
         termuxPrefix
         termuxHome
@@ -34,6 +34,10 @@ class TerminalToolchainManager(
         AppStoragePaths.terminalLogsDir(appContext)
         AppStoragePaths.terminalCacheDir(appContext)
         ensureAndroidRuntimeDirs()
+    }
+
+    fun ensureLayout(): TerminalToolchainStatus {
+        ensureBaseDirs()
         if (!extractBundledRootfsIfPresent()) {
             extractBundledToolchainIfPresent()
         }
@@ -223,7 +227,6 @@ class TerminalToolchainManager(
                     }
                 }
             }
-            patchPrefixInRegularFiles(target)
             restoreSymlinks(target, symlinkSpec)
             ensureCriticalEntrypoints(target)
             markExecutableTree(target)
@@ -290,7 +293,6 @@ class TerminalToolchainManager(
                     }
                 }
             }
-            patchPrefixInRegularFiles(target)
             restoreSymlinks(target, symlinkSpec)
             ensureCriticalEntrypoints(target)
             markExecutableTree(target)

@@ -204,6 +204,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.lgclaw.R
+import com.lgclaw.attachments.AttachmentBridge
 import com.lgclaw.config.AppLimits
 import com.lgclaw.config.AppSession
 import com.lgclaw.providers.ProviderCatalog
@@ -343,6 +344,7 @@ fun ChatScreen(vm: ChatViewModel) {
     var showCompressionCancelConfirm by rememberSaveable { mutableStateOf(false) }
     var showTerminalSheet by rememberSaveable { mutableStateOf(false) }
     var showTerminalMiniOverlay by rememberSaveable { mutableStateOf(true) }
+    var terminalMiniOverlaySuppressed by rememberSaveable { mutableStateOf(false) }
     var showHeartbeatEditor by rememberSaveable { mutableStateOf(false) }
     var roleCardMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var showQuickRoleCardDialog by rememberSaveable { mutableStateOf(false) }
@@ -2344,14 +2346,18 @@ fun ChatScreen(vm: ChatViewModel) {
 
     var nearTailBeforeImeOpen by rememberSaveable { mutableStateOf(true) }
     val showScrollToLatestButton = totalItems > 0 && !isNearTail
+    val attachmentBridge = remember(context) { AttachmentBridge(context.applicationContext) }
     val openAttachment: (UiMediaAttachment) -> Unit = { attachment ->
-        toAttachmentUri(attachment.reference)?.let { uri ->
+        val uri = runCatching {
+            attachment.fileId.takeIf { it.isNotBlank() }?.let { attachmentBridge.getShareUri(it) }
+        }.getOrNull() ?: toAttachmentUri(attachment.reference)
+        uri?.let {
             val mime = mediaMimeTypeForKind(attachment.kind)
             val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mime)
+                setDataAndType(it, attachment.mimeType.takeIf { value -> value.isNotBlank() } ?: mime)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            runCatching { context.startActivity(Intent.createChooser(intent, "Open media")) }
+            runCatching { context.startActivity(Intent.createChooser(intent, "打开附件")) }
         }
     }
     val toggleAudioPreview: (UiMediaAttachment) -> Unit = { attachment ->
@@ -2553,7 +2559,11 @@ fun ChatScreen(vm: ChatViewModel) {
             state.terminalRuntime.activeCommand.isNotBlank() ||
             state.terminalRuntime.installing
         ) {
-            showTerminalMiniOverlay = true
+            if (!terminalMiniOverlaySuppressed) {
+                showTerminalMiniOverlay = true
+            }
+        } else {
+            terminalMiniOverlaySuppressed = false
         }
     }
 
@@ -2965,6 +2975,11 @@ fun ChatScreen(vm: ChatViewModel) {
                 onOpenTheme = {
                     mainSurfaceName = MainSurface.Theme.name
                     uiScope.launch { drawerState.close() }
+                },
+                onOpenEnvironment = {
+                    vm.detectTerminalEnvironment()
+                    mainSurfaceName = MainSurface.Environment.name
+                    uiScope.launch { drawerState.close() }
                 }
             )
         }
@@ -3178,7 +3193,7 @@ fun ChatScreen(vm: ChatViewModel) {
                         }
                     }
 
-                    MainSurface.Settings, MainSurface.Skills, MainSurface.Tools, MainSurface.Memory, MainSurface.Agents, MainSurface.Theme -> TopAppBar(
+                    MainSurface.Settings, MainSurface.Skills, MainSurface.Tools, MainSurface.Memory, MainSurface.Agents, MainSurface.Theme, MainSurface.Environment -> TopAppBar(
                         colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = Color.White,
                             titleContentColor = ModernPanelTokens.Text,
@@ -3197,13 +3212,13 @@ fun ChatScreen(vm: ChatViewModel) {
                                     )
                                 Column {
                                     Text(
-                                        text = when (mainSurface) { MainSurface.Skills -> "技能"; MainSurface.Tools -> "工具"; MainSurface.Memory -> "记忆"; MainSurface.Agents -> "智能体"; MainSurface.Theme -> "主题"; else -> settingsPageTitle },
+                                        text = when (mainSurface) { MainSurface.Skills -> "技能"; MainSurface.Tools -> "工具"; MainSurface.Memory -> "记忆"; MainSurface.Agents -> "智能体"; MainSurface.Theme -> "主题"; MainSurface.Environment -> "运行环境"; else -> settingsPageTitle },
                                         style = MaterialTheme.typography.titleLarge,
                                         fontWeight = FontWeight.SemiBold,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    (when (mainSurface) { MainSurface.Skills -> "技能商店与 @ 指令"; MainSurface.Tools -> "动态工作流工具"; MainSurface.Memory -> "本地记忆与压缩记忆"; MainSurface.Agents -> "会话绑定智能体"; MainSurface.Theme -> "字体、气泡与背景"; else -> settingsPageSubtitle }).takeIf { it.isNotBlank() }?.let { subtitle ->
+                                    (when (mainSurface) { MainSurface.Skills -> "技能商店与 @ 指令"; MainSurface.Tools -> "动态工作流工具"; MainSurface.Memory -> "本地记忆与压缩记忆"; MainSurface.Agents -> "会话绑定智能体"; MainSurface.Theme -> "字体、气泡与背景"; MainSurface.Environment -> "内嵌 Node/Python/Git/SSH 工具链"; else -> settingsPageSubtitle }).takeIf { it.isNotBlank() }?.let { subtitle ->
                                             Text(
                                             text = subtitle,
                                             style = MaterialTheme.typography.bodySmall,
@@ -3682,7 +3697,10 @@ fun ChatScreen(vm: ChatViewModel) {
                                 state = state.terminalRuntime,
                                 onExpand = { showTerminalSheet = true },
                                 onCancelTask = vm::cancelTerminalTask,
-                                onDismissOverlay = { showTerminalMiniOverlay = false },
+                                onDismissOverlay = {
+                                    terminalMiniOverlaySuppressed = true
+                                    showTerminalMiniOverlay = false
+                                },
                                 onRequestOverlayPermission = {
                                     val intent = Intent(
                                         Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -3751,6 +3769,16 @@ fun ChatScreen(vm: ChatViewModel) {
                     onClearDrawerBackground = vm::clearDrawerBackground,
                     onDrawerBackgroundTuning = vm::setDrawerBackgroundTuning,
                     onResetThemeDefaults = vm::resetThemeDefaults
+                )
+
+                MainSurface.Environment -> TerminalEnvironmentPanel(
+                    state = state.terminalRuntime,
+                    onDetect = vm::detectTerminalEnvironment,
+                    onInitialize = vm::initializeTerminalEnvironment,
+                    onInstallTools = vm::installTerminalDeveloperTools,
+                    onOpenTerminal = { showTerminalSheet = true },
+                    onCancelTask = vm::cancelTerminalTask,
+                    onClear = vm::clearTerminalOutput
                 )
 
                 MainSurface.Agents -> AgentCenterPanel(
@@ -5031,6 +5059,7 @@ private enum class MainSurface {
     Memory,
     Agents,
     Theme,
+    Environment,
 }
 
 

@@ -23,8 +23,8 @@ android {
         // storage. Android blocks that for targetSdk >= 29, so we keep the
         // target at 28 like terminal-first apps do.
         targetSdk = 28
-        versionCode = 9
-        versionName = "0.1.9"
+        versionCode = 10
+        versionName = "0.1.10"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -27,7 +27,7 @@ private class TerminalExecTool(
 ) : Tool {
     override val name: String = "terminal_exec"
     override val description: String =
-        "在当前会话的独立工作区执行命令或代码。适合运行 node/npm、python/pip/uv、git、ssh、构建、测试和代码检查。执行前先给出简短计划，执行后必须读取退出码和输出再继续。"
+        "在当前会话的独立工作区静默执行命令或代码。适合运行 node/npm、python/pip/uv、git、ssh、构建、测试、文件处理和代码检查。把终端当作后台工作器：用户聊天输入仍然属于 Agent，不属于终端。遇到缺少 pip/npm/uv 依赖时，可以先用 python -m pip install、uv pip install 或 npm install 自动安装，再重试一次；执行后必须读取退出码和输出再继续。"
 
     override val jsonSchema: JsonObject = buildJsonObject {
         put("type", "object")
@@ -52,7 +52,7 @@ private class TerminalExecTool(
         val args = runCatching { Json.decodeFromString<ExecArgs>(argumentsJson) }.getOrElse {
             return ToolResult(
                 toolCallId = "",
-                content = "终端执行失败：参数格式不正确（${it.message ?: it.javaClass.simpleName}）",
+                content = "终端执行失败：参数格式不正确，${it.message ?: it.javaClass.simpleName}",
                 isError = true
             )
         }
@@ -143,7 +143,7 @@ private class TerminalStatusTool(
     private val terminalController: TerminalController
 ) : Tool {
     override val name: String = "terminal_status"
-    override val description: String = "查看终端模式、工具链可用性、当前命令、最近输出和悬浮窗权限。"
+    override val description: String = "查看终端模式、工具链可用性、当前命令、最近输出、缺失组件和悬浮窗权限。"
     override val jsonSchema: JsonObject = buildJsonObject {
         put("type", "object")
         put("properties", buildJsonObject {})

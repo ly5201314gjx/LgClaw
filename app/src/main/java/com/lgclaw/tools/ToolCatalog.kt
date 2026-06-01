@@ -1,6 +1,7 @@
 ﻿package com.lgclaw.tools
 
 import android.content.Context
+import com.lgclaw.attachments.createAttachmentToolSet
 import com.lgclaw.agents.AgentRepository
 import com.lgclaw.novel.NovelRepository
 import com.lgclaw.config.AppStoragePaths
@@ -66,6 +67,7 @@ private fun buildCoreTools(
         addAll(createDynamicToolManagementSet(dynamicToolStore))
         addAll(createDynamicPromptTools(dynamicToolStore))
         addAll(createFileToolSet(context, AppStoragePaths.storageRoot(context)))
+        addAll(createAttachmentToolSet(context))
         addAll(createMemoryToolSet(memoryStore, currentSessionIdProvider))
         if (terminalController != null) addAll(createTerminalToolSet(terminalController, currentSessionIdProvider))
     }

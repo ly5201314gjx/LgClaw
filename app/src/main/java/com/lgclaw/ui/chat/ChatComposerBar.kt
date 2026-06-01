@@ -92,13 +92,6 @@ internal fun ChatComposerBar(
                 }
             )
         }
-        if (state.terminalRuntime.enabled) {
-            TerminalModeBanner(
-                state = state.terminalRuntime,
-                onRequestOverlayPermission = onRequestTerminalOverlayPermission,
-                onCancelTask = onStopGeneration
-            )
-        }
         PendingAttachmentStrip(
             attachments = state.pendingAttachments,
             onRemove = onRemoveAttachment
@@ -166,7 +159,7 @@ internal fun ChatComposerBar(
                     ) {
                         if (state.input.isBlank()) {
                             Text(
-                                text = if (state.terminalRuntime.enabled) "输入命令或脚本，按运行即可" else "输入消息，图片和文件都可以一起发",
+                                text = "输入消息，Agent 会按需静默调度终端、技能和工具",
                                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
                                 color = Color(0xFF8A93A3),
                                 maxLines = 2,
@@ -223,8 +216,8 @@ internal fun ChatComposerBar(
                                 )
                             } else {
                                 Icon(
-                                    imageVector = if (state.terminalRuntime.enabled) Icons.Rounded.PlayArrow else Icons.Rounded.KeyboardArrowUp,
-                                    contentDescription = if (state.terminalRuntime.enabled) "运行" else "发送",
+                                    imageVector = Icons.Rounded.KeyboardArrowUp,
+                                    contentDescription = "发送给 Agent",
                                     tint = if (canSend) Color.White else Color(0xFF9AA3B2),
                                     modifier = Modifier.size(20.dp)
                                 )

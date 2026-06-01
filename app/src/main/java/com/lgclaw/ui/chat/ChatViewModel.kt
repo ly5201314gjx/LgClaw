@@ -21,6 +21,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.lgclaw.runtime.AlwaysOnModeController
 import com.lgclaw.runtime.AlwaysOnHealthCheckWorker
+import com.lgclaw.attachments.AttachmentBridge
 import com.lgclaw.agent.AgentLogStore
 import com.lgclaw.agents.AgentRepository
 import com.lgclaw.agents.AvatarCropSpec
@@ -450,27 +451,24 @@ class ChatViewModel(
         }
     }
 
-    private fun saveInputAttachment(app: Application, uri: Uri): UiPendingAttachment {
-        val resolver = app.contentResolver
-        val name = queryDisplayName(app, uri).ifBlank { "attachment_${System.currentTimeMillis()}" }
-        val mime = resolver.getType(uri).orEmpty().ifBlank { guessMimeFromName(name) }
-        val safeName = name.replace(Regex("[^A-Za-z0-9._-]+"), "_").take(80).ifBlank { "file" }
-        val dir = File(AppStoragePaths.storageRoot(app), "attachments").apply { mkdirs() }
-        val target = File(dir, "${System.currentTimeMillis()}_$safeName")
-        resolver.openInputStream(uri)?.use { input ->
-            FileOutputStream(target).use { output -> input.copyTo(output) }
-        } ?: throw IllegalArgumentException("无法读取所选文件")
-        val kind = if (mime.startsWith("image/")) UiMediaKind.Image else UiMediaKind.Document
-        val finalFile = if (kind == UiMediaKind.Image) prepareVisionImage(target, mime) else target
-        val finalMime = if (kind == UiMediaKind.Image && finalFile.extension.equals("jpg", ignoreCase = true)) "image/jpeg" else mime
+    private suspend fun saveInputAttachment(app: Application, uri: Uri): UiPendingAttachment {
+        val bridge = AttachmentBridge(app)
+        val ref = bridge.importFromUri(uri)
+        val preview = bridge.generatePreview(ref.id)
+        val kind = when (ref.kind.lowercase(Locale.US)) {
+            "image" -> UiMediaKind.Image
+            "video" -> UiMediaKind.Video
+            "audio" -> UiMediaKind.Audio
+            else -> UiMediaKind.Document
+        }
         return UiPendingAttachment(
-            id = UUID.randomUUID().toString().take(8),
-            name = finalFile.name,
-            mimeType = finalMime,
-            path = finalFile.absolutePath,
-            sizeBytes = finalFile.length(),
+            id = ref.id,
+            name = ref.fileName,
+            mimeType = ref.mimeType,
+            path = ref.path,
+            sizeBytes = ref.sizeBytes,
             kind = kind,
-            textPreview = extractTextPreview(finalFile, finalMime)
+            textPreview = preview.previewText.orEmpty()
         )
     }
 
@@ -609,10 +607,6 @@ class ChatViewModel(
             .replace("\\\\", "\\")
     }
     fun sendMessage(): Unit {
-        if (_uiState.value.terminalRuntime.enabled) {
-            sendTerminalInput()
-            return
-        }
         sessionCoordinator.sendMessage()
     }
 
@@ -657,6 +651,35 @@ class ChatViewModel(
             showSettingsInfo("已开始安装内嵌开发工具，终端面板会显示进度")
         }.onFailure { error ->
             showSettingsInfo("启动开发工具安装失败：${error.message ?: error.javaClass.simpleName}")
+        }
+    }
+
+    fun detectTerminalEnvironment() {
+        viewModelScope.launch {
+            val status = terminalController.refreshToolchainStatus(prepareIfMissing = false)
+            syncTerminalRuntimeState(terminalController.state.value)
+            showSettingsInfo(
+                if (status.missingExecutables.isEmpty()) {
+                    "运行环境检测完成：全部可用"
+                } else {
+                    "运行环境检测完成，缺少：${status.missingExecutables.sorted().joinToString("、")}"
+                }
+            )
+        }
+    }
+
+    fun initializeTerminalEnvironment() {
+        viewModelScope.launch {
+            showSettingsInfo("正在初始化内嵌运行环境，请稍等")
+            val status = terminalController.refreshToolchainStatus(prepareIfMissing = true)
+            syncTerminalRuntimeState(terminalController.state.value)
+            showSettingsInfo(
+                if (status.ready) {
+                    "内嵌运行环境已初始化"
+                } else {
+                    "运行环境初始化未完成：${status.lastError.ifBlank { "请进入运行环境面板继续安装缺失工具" }}"
+                }
+            )
         }
     }
 
@@ -853,6 +876,8 @@ class ChatViewModel(
                 appendLine("   大小：${attachment.sizeBytes} bytes")
                 if (attachment.kind == UiMediaKind.Image) {
                     appendLine("   说明：这是一张图片；系统会把可识别的图片数据随本轮消息一起发送给多模态模型。")
+                } else {
+                    appendLine("   说明：如需读取完整文本内容，请调用 attachment_read_text，参数 attachment_id=${attachment.id}。")
                 }
                 if (attachment.textPreview.isNotBlank()) {
                     appendLine("   内容摘录：")
@@ -4784,6 +4809,27 @@ class ChatViewModel(
             return emptyList()
         }
         val kindHint = metadataString(parsed?.metadata, "kind")?.lowercase(Locale.US).orEmpty()
+        val attachmentId = metadataString(parsed?.metadata, "attachment_id").orEmpty()
+        val attachmentPath = metadataString(parsed?.metadata, "path").orEmpty()
+        if (attachmentId.isNotBlank() && attachmentPath.isNotBlank()) {
+            val mime = metadataString(parsed?.metadata, "mime_type").orEmpty()
+            val fileName = metadataString(parsed?.metadata, "file_name").orEmpty()
+            val kind = when {
+                kindHint == "image" || mime.startsWith("image/", ignoreCase = true) -> UiMediaKind.Image
+                kindHint == "video" || mime.startsWith("video/", ignoreCase = true) -> UiMediaKind.Video
+                kindHint == "audio" || mime.startsWith("audio/", ignoreCase = true) -> UiMediaKind.Audio
+                else -> UiMediaKind.Document
+            }
+            return listOf(
+                UiMediaAttachment(
+                    reference = attachmentPath,
+                    kind = kind,
+                    label = fileName.ifBlank { File(attachmentPath).name.ifBlank { "附件" } },
+                    mimeType = mime,
+                    fileId = attachmentId
+                )
+            )
+        }
         val candidates = LinkedHashSet<String>()
         val keys = listOf("output_uri", "uri", "url", "path")
         keys.forEach { key ->

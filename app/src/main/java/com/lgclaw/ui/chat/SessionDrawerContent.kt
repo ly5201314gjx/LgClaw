@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -61,7 +62,8 @@ internal fun SessionDrawerContent(
     onOpenTools: () -> Unit,
     onOpenMemory: () -> Unit,
     onOpenAgents: () -> Unit,
-    onOpenTheme: () -> Unit
+    onOpenTheme: () -> Unit,
+    onOpenEnvironment: () -> Unit
 ) {
     ModalDrawerSheet(
         modifier = Modifier
@@ -105,6 +107,7 @@ internal fun SessionDrawerContent(
                     onOpenTools = onOpenTools,
                     onOpenMemory = onOpenMemory,
                     onOpenTheme = onOpenTheme,
+                    onOpenEnvironment = onOpenEnvironment,
                     onOpenSettings = onOpenSettings
                 )
             }
@@ -133,39 +136,27 @@ private fun DrawerHero(onCreateSessionRequest: () -> Unit) {
                         cornerRadius = CornerRadius(18.dp.toPx(), 18.dp.toPx())
                     )
                 }
-                .padding(10.dp),
+                .padding(horizontal = 10.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "LGClaw",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF171A20)
-                )
-                Text(
-                    text = "会话与能力中心",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF7C8798),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
             Surface(
-                modifier = Modifier.size(30.dp),
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF171A20),
-                contentColor = Color.White
+                shape = RoundedCornerShape(14.dp),
+                color = Color.White,
+                border = BorderStroke(1.dp, Color(0xFFE4EAF3))
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable(onClick = onCreateSessionRequest),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Rounded.Add, contentDescription = "新建会话", modifier = Modifier.size(16.dp))
-                }
+                Icon(
+                    imageVector = Icons.Rounded.Add,
+                    contentDescription = null,
+                    modifier = Modifier.padding(8.dp),
+                    tint = Color(0xFF3977F6)
+                )
             }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("新会话", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("点一下就能创建新的聊天空间", style = MaterialTheme.typography.bodySmall, color = Color(0xFF7B8494))
+            }
+            MiniActionButton("新建", onClick = onCreateSessionRequest)
         }
     }
 }
@@ -218,13 +209,13 @@ private fun DrawerSessionRow(
                 )
             }
             if (!session.isLocal) {
-                MinimalActionIconButton(onClick = onRename) {
+                MiniActionIconButton(onClick = onRename) {
                     Icon(Icons.Outlined.Edit, contentDescription = "重命名会话", tint = Color(0xFF697386))
                 }
-                MinimalActionIconButton(onClick = onConfigure) {
+                MiniActionIconButton(onClick = onConfigure) {
                     Icon(Icons.Outlined.Settings, contentDescription = "配置会话渠道", tint = Color(0xFF697386))
                 }
-                MinimalActionIconButton(onClick = onDelete) {
+                MiniActionIconButton(onClick = onDelete) {
                     Icon(Icons.Outlined.DeleteOutline, contentDescription = "删除会话", tint = Color(0xFFB4473F))
                 }
             }
@@ -239,6 +230,7 @@ private fun DrawerActionGrid(
     onOpenTools: () -> Unit,
     onOpenMemory: () -> Unit,
     onOpenTheme: () -> Unit,
+    onOpenEnvironment: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -252,6 +244,9 @@ private fun DrawerActionGrid(
         }
         androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             DrawerActionTile("主题", Icons.Outlined.Settings, onOpenTheme, Modifier.weight(1f))
+            DrawerActionTile("环境", Icons.Rounded.Terminal, onOpenEnvironment, Modifier.weight(1f))
+        }
+        androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             DrawerActionTile("设置", Icons.Outlined.Settings, onOpenSettings, Modifier.weight(1f))
         }
     }
@@ -287,6 +282,38 @@ private fun DrawerActionTile(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+        }
+    }
+}
+
+@Composable
+private fun MiniActionButton(text: String, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, Color(0xFFE2E7F0)),
+        modifier = Modifier.clickable(onClick = onClick)
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF3977F6)
+        )
+    }
+}
+
+@Composable
+private fun MiniActionIconButton(onClick: () -> Unit, icon: @Composable () -> Unit) {
+    Surface(
+        modifier = Modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, Color(0xFFE6EAF1))
+    ) {
+        Box(modifier = Modifier.padding(4.dp), contentAlignment = Alignment.Center) {
+            icon()
         }
     }
 }

@@ -1,16 +1,44 @@
 # Changelog
 
+## v0.1.10 - 2026-06-02
+
+### Added
+
+- Added the local `AttachmentBridge` MVP for chat uploads and agent-generated files.
+- Chat attachments are copied into app-private `files/attachments/` storage with a persistent JSON index.
+- Added `AttachmentTools` so the agent can preview, list, read text attachments, and save generated text or binary files back into the current chat.
+- Added FileProvider-backed attachment opening so users can tap local images and files safely from chat bubbles.
+
+### Fixed
+
+- Improved the compact file attachment card and Chinese attachment labels in the chat UI.
+- Kept attachment support scoped to the chat bridge without changing model provider logic or remote channel file protocols.
+
+### Verified
+
+- `compileDebugKotlin` passed after adding AttachmentBridge.
+- `assembleDebug testDebugUnitTest --stacktrace` passed.
+
 ## v0.1.9 - 2026-06-01
+
+### Added
+
+- Added the local `AttachmentBridge` MVP for chat uploads and agent-generated files.
+- Chat attachments are copied into app-private `files/attachments/` storage with a persistent JSON index.
+- Added `AttachmentTools` so the agent can preview, list, read text attachments, and save generated text or binary files back into the current chat.
+- Added FileProvider-backed attachment opening so users can tap local images and files safely from chat bubbles.
 
 ### Fixed
 
 - Reworked the embedded terminal runtime packaging so the bundled Termux-style toolchain can execute from LGClaw's private storage on Android.
 - Added a safe terminal launch fallback: if the embedded shell is blocked, LGClaw reports the failure in Chinese instead of crashing the chat page.
 - Fixed the mini terminal overlay close button so it hides the floating monitor without cancelling the running task.
+- Improved the compact file attachment card and Chinese attachment labels in the chat UI.
 
 ### Verified
 
 - Debug APK rebuilt as `LGClaw-Pro-debug.apk`.
+- `compileDebugKotlin` passed after adding AttachmentBridge.
 - Confirmed APK contains `rootfs.zip`, `offline-debs.zip`, and `toolchain.zip`.
 - `assembleDebug testDebugUnitTest lintDebug` passed.
 

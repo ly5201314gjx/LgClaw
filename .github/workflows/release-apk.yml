@@ -39,27 +39,28 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk LGClaw-Pro-debug.apk
           sha256sum LGClaw-Pro-debug.apk | tee LGClaw-Pro-debug.apk.sha256
           cat > RELEASE_NOTES.md <<'EOF'
-          ## LGClaw v0.1.9
+          ## LGClaw ${{ github.ref_name }}
 
-          这版重点把内嵌终端真正做稳：APK 已内置 arm64 终端资源，并调整为适合终端类应用的 Android target，让 Node.js/npm、Python/pip/uv、Git、SSH 和 shell 工具可以在 LGClaw 私有运行时里执行。
+          这一版把聊天附件桥补齐为可用的本地能力：你可以在对话里上传图片和文件，消息气泡会显示缩略图或文件卡片；Agent 也可以读取文本类附件，并把生成的本地文件保存回聊天里。
 
-          ### 本次修复
+          ### 本次更新
 
-          - 修复终端一启动就闪退/初始化失败的问题，启动异常会变成中文状态输出。
-          - 修复迷你终端浮窗 X 按钮：关闭浮窗不会误取消正在运行的任务。
-          - 强化终端 shell 启动兜底逻辑，遇到机型限制时会清楚提示原因。
-          - Release 附件由 GitHub Actions 云端构建并上传，下载页会稳定显示最新版 APK。
+          - 新增 `AttachmentBridge`：统一导入、保存、预览、读取和分享本地附件。
+          - 用户选择的文件会复制到 App 私有 `files/attachments/`，不长期依赖外部 Uri。
+          - 新增 `attachment_read_text`、`attachment_preview`、`attachment_save_text`、`attachment_save_base64`、`attachment_list` 工具。
+          - 图片显示缩略图，文件显示精致小卡片，点击后用安全的 FileProvider 打开。
+          - 保持 MVP 边界：不做 OCR、PDF/Word 深度解析，也不改模型供应商协议。
 
           ### 验证
 
-          - `assembleDebug testDebugUnitTest lintDebug --stacktrace` 已通过。
-          - Release 附带 `LGClaw-Pro-debug.apk.sha256` 供校验。
+          - GitHub Actions 会重新执行 `assembleDebug testDebugUnitTest lintDebug --stacktrace`。
+          - Release 附带 `LGClaw-Pro-debug.apk.sha256`，方便校验安装包。
           EOF
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: LGClaw v0.1.9 - 稳定内嵌终端运行时
+          name: LGClaw ${{ github.ref_name }} - 聊天附件桥
           body_path: RELEASE_NOTES.md
           files: |
             LGClaw-Pro-debug.apk

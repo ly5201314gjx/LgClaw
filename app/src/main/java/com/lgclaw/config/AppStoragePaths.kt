@@ -12,6 +12,7 @@ object AppStoragePaths {
     private const val SKILLS_DIR = "skills"
     private const val TEMPLATES_DIR = "templates"
     private const val TOOLS_DIR = "tools"
+    private const val ATTACHMENTS_DIR = "attachments"
     private const val TERMINAL_DIR = "terminal"
     private const val TERMINAL_HOME_DIR = "home"
     private const val TERMINAL_WORKSPACES_DIR = "workspaces"
@@ -37,6 +38,8 @@ object AppStoragePaths {
     fun templatesDir(context: Context): File = File(storageRoot(context), TEMPLATES_DIR).apply { mkdirs() }
 
     fun toolsDir(context: Context): File = File(storageRoot(context), TOOLS_DIR).apply { mkdirs() }
+
+    fun attachmentsDir(context: Context): File = File(context.filesDir, ATTACHMENTS_DIR).apply { mkdirs() }
 
     fun terminalDir(context: Context): File = File(storageRoot(context), TERMINAL_DIR).apply { mkdirs() }
 
