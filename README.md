@@ -10,13 +10,13 @@
 [![Android](https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](#)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Compose-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](#)
 [![Local First](https://img.shields.io/badge/Local--First-Agent%20Runtime-0A84FF?style=for-the-badge)](#)
-[![Download APK](https://img.shields.io/badge/Download-v0.1.7%20APK-f39c12?style=for-the-badge&logo=android&logoColor=white)](./LGClaw-Pro-debug.apk)
+[![Download APK](https://img.shields.io/badge/Download-v0.1.8%20APK-f39c12?style=for-the-badge&logo=android&logoColor=white)](https://github.com/ly5201314gjx/LgClaw/releases/latest/download/LGClaw-Pro-debug.apk)
 
 </div>
 
 <p align="center">
   <a href="./README.zh-CN.md">简体中文</a> ·
-  <a href="./LGClaw-Pro-debug.apk">Download APK</a> ·
+  <a href="https://github.com/ly5201314gjx/LgClaw/releases/latest/download/LGClaw-Pro-debug.apk">Download APK</a> ·
   <a href="https://github.com/ly5201314gjx/LgClaw/releases">Releases</a>
 </p>
 
@@ -24,12 +24,12 @@
 
 ## Latest Update
 
-**v0.1.7** gives LGClaw a sharper identity and a cleaner first impression:
+**v0.1.8** turns LGClaw into a more serious mobile agent workstation:
 
-- New app icon, launcher icon, in-app mark, and startup splash animation based on the latest LGClaw artwork.
-- Chat home header now leaves the center blank, keeping the conversation calmer while retaining quick actions.
-- Modern message bubbles, compact tool drawer, white-glass settings panels, and refreshed theme presets remain included.
-- The latest install package is available as [`LGClaw-Pro-debug.apk`](./LGClaw-Pro-debug.apk).
+- Added an embedded arm64 terminal runtime with offline Node.js/npm, Python/pip/uv, Git, SSH, shell tools, and isolated per-session workspaces.
+- Hardened terminal mode so long-press, expand, cancel, and force-close stay stable during first-run initialization.
+- Strengthened the Codex-style agent loop: the model plans, chooses skills/tools/terminal steps, reads results, fixes errors, and verifies before answering.
+- The latest install package is attached to [GitHub Releases](https://github.com/ly5201314gjx/LgClaw/releases/latest).
 
 See the full [CHANGELOG](./CHANGELOG.md).
 
@@ -53,19 +53,14 @@ It is still an Android app, but it behaves more like a pocket-sized AI control r
 - **Provider Console**: configure providers, fetch model lists, equip multiple models per provider, and switch models from the chat header.
 - **Search Toolkit**: DuckDuckGo, DuckDuckGo Lite, Mojeek, Wikipedia, StackExchange, and browser fallback paths.
 - **Attachment Chat**: images, PDFs, Word documents, text files, and common local documents.
+- **Embedded Terminal**: offline arm64 runtime for Node.js/npm, Python/pip/uv, Git, SSH, shell commands, and agent-driven code execution.
 - **Theme Studio**: glass bubbles, water-glass styling, fonts, text size, line height, chat backgrounds, sidebar backgrounds, opacity, blur, and readability masks.
 - **120Hz-friendly UI**: the Android window requests the highest supported refresh mode for smoother scrolling and animation.
 - **Polished identity**: updated LGClaw icon, splash animation, GitHub homepage assets, and a calmer chat header.
 
 ## Install
 
-The repository includes the latest debug APK:
-
-```text
-LGClaw-Pro-debug.apk
-```
-
-Download it directly from this repository or from [GitHub Releases](https://github.com/ly5201314gjx/LgClaw/releases).
+Download the latest debug APK from [GitHub Releases](https://github.com/ly5201314gjx/LgClaw/releases/latest/download/LGClaw-Pro-debug.apk).
 
 > This is a debug build for testing and personal use. For public distribution, sign a release build with your own keystore.
 
@@ -142,7 +137,7 @@ LGClaw/
     skills/         Bundled skills
     templates/      AGENT / USER / TOOLS / MEMORY / HEARTBEAT templates
   docs/assets/      Brand, screenshots, and documentation assets
-  LGClaw-Pro-debug.apk
+  scripts/          terminal runtime packaging helpers
 ```
 
 ## Privacy And Safety

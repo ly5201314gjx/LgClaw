@@ -25,3 +25,6 @@ tmp/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Large generated terminal runtime assets are embedded in release APKs.
+app/src/main/assets/terminal/
