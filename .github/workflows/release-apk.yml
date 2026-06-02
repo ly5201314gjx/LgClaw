@@ -41,15 +41,16 @@ jobs:
           cat > RELEASE_NOTES.md <<'EOF'
           ## LGClaw ${{ github.ref_name }}
 
-          这一版把聊天附件桥补齐为可用的本地能力：你可以在对话里上传图片和文件，消息气泡会显示缩略图或文件卡片；Agent 也可以读取文本类附件，并把生成的本地文件保存回聊天里。
+          这一版重点升级聊天首页、工具结果展示、模型/角色选择面板，并修正附件发送到外部渠道时的提示链路。
 
           ### 本次更新
 
-          - 新增 `AttachmentBridge`：统一导入、保存、预览、读取和分享本地附件。
-          - 用户选择的文件会复制到 App 私有 `files/attachments/`，不长期依赖外部 Uri。
-          - 新增 `attachment_read_text`、`attachment_preview`、`attachment_save_text`、`attachment_save_base64`、`attachment_list` 工具。
-          - 图片显示缩略图，文件显示精致小卡片，点击后用安全的 FileProvider 打开。
-          - 保持 MVP 边界：不做 OCR、PDF/Word 深度解析，也不改模型供应商协议。
+          - 首页对话 UI 改为白玻璃 launchpad、分组功能卡和蓝紫描边输入栏。
+          - 工具结果在消息流里只显示短 pill，例如 `terminal_exec [ok]`；长按工具名从底部展开详情。
+          - 工具详情底部面板展示完整 note/think、原始输出和附件，不再把大段日志铺在对话里。
+          - 模型选择和角色卡选择改成固定高度的精致底部面板。
+          - `attachment_send` 返回 `local_path` / `message_media_hint`，方便 Agent 继续调用 `message` 工具把图片或文件发到外部渠道。
+          - 强化空响应恢复、终端调度和 provider fallback，长任务更稳。
 
           ### 验证
 
@@ -60,7 +61,7 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: LGClaw ${{ github.ref_name }} - 聊天附件桥
+          name: LGClaw ${{ github.ref_name }} - 首页与工具抽屉升级
           body_path: RELEASE_NOTES.md
           files: |
             LGClaw-Pro-debug.apk

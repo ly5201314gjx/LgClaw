@@ -31,6 +31,7 @@ class ThemePreferencesModelTest {
     fun uiBubbleStyle_fallsBackToNativeForUnknownKeys() {
         assertEquals(UiBubbleStyle.Frosted, UiBubbleStyle.fromKey("frosted"))
         assertEquals(UiBubbleStyle.Water, UiBubbleStyle.fromKey("water"))
+        assertEquals(UiBubbleStyle.None, UiBubbleStyle.fromKey("none"))
         assertEquals(UiBubbleStyle.Native, UiBubbleStyle.fromKey("unknown"))
     }
 }

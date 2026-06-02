@@ -202,6 +202,109 @@ internal fun TerminalMiniOverlay(
 }
 
 @Composable
+internal fun TerminalMiniOverlayCompact(
+    state: UiTerminalRuntimeState,
+    onExpand: () -> Unit,
+    onDismissOverlay: () -> Unit,
+    onRequestOverlayPermission: () -> Unit
+) {
+    if (state.recentOutput.isEmpty() && state.activeCommand.isBlank() && !state.enabled && !state.installing) return
+    val previewText = remember(state.activeCommand, state.recentOutput) {
+        val lines = mutableListOf<String>()
+        val command = state.activeCommand.trim()
+        if (command.isNotBlank()) lines += "$ $command"
+        lines += state.recentOutput
+            .map { it.text.trim() }
+            .filter { it.isNotBlank() }
+            .takeLast(2)
+        lines.takeLast(2).joinToString("\n")
+    }
+    val busy = state.activeJobId.isNotBlank() || state.installing
+    Surface(
+        modifier = Modifier.widthIn(min = 142.dp, max = 188.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = Color.White.copy(alpha = 0.98f),
+        contentColor = Color(0xFF1B1E26),
+        border = BorderStroke(1.dp, if (busy) Color(0xFFBFD3FF) else Color(0xFFE6EAF1)),
+        shadowElevation = 4.dp,
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .combinedClickable(onClick = onExpand, onLongClick = onExpand)
+                .padding(start = 5.dp, end = 7.dp, top = 6.dp, bottom = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Surface(
+                modifier = Modifier.combinedClickable(onClick = onDismissOverlay, onLongClick = onDismissOverlay),
+                shape = RoundedCornerShape(999.dp),
+                color = Color(0xFFF4F6FA),
+                contentColor = Color(0xFF7B8494),
+                border = BorderStroke(1.dp, Color(0xFFE7EBF2))
+            ) {
+                Icon(
+                    Icons.Rounded.Close,
+                    contentDescription = "隐藏终端浮窗，终端继续静默运行",
+                    modifier = Modifier.padding(4.dp),
+                    tint = Color(0xFF7B8494)
+                )
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Rounded.Terminal,
+                        contentDescription = null,
+                        tint = if (busy) Color(0xFF3977F6) else Color(0xFF7B8494)
+                    )
+                    Text(
+                        text = when {
+                            state.installing -> "环境准备"
+                            state.activeJobId.isNotBlank() -> "终端运行"
+                            state.lastExitCode != null -> "运行完成"
+                            else -> "静默待命"
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    text = previewText.ifBlank { "点按展开，关闭浮窗不停止任务" }.take(120),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF596170),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (!state.overlayPermissionGranted) {
+                Surface(
+                    modifier = Modifier.combinedClickable(
+                        onClick = onRequestOverlayPermission,
+                        onLongClick = onRequestOverlayPermission
+                    ),
+                    shape = RoundedCornerShape(999.dp),
+                    color = Color(0xFFFFF7ED),
+                    contentColor = Color(0xFFD97706),
+                    border = BorderStroke(1.dp, Color(0xFFFED7AA))
+                ) {
+                    Icon(
+                        Icons.Rounded.WarningAmber,
+                        contentDescription = "授权悬浮窗",
+                        modifier = Modifier.padding(4.dp),
+                        tint = Color(0xFFD97706)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 internal fun TerminalExpandedSheet(
     state: UiTerminalRuntimeState,
     onDismiss: () -> Unit,

@@ -88,6 +88,7 @@ import com.lgclaw.providers.ProviderResolutionStore
 import com.lgclaw.providers.ToolCall
 import com.lgclaw.runtime.RuntimeController
 import com.lgclaw.skills.SkillsLoader
+import com.lgclaw.trace.TraceNoteExtractor
 import com.lgclaw.storage.AppDatabase
 import com.lgclaw.storage.MessageRepository
 import com.lgclaw.storage.SessionRepository
@@ -252,7 +253,7 @@ class ChatViewModel(
             buildConnectedChannelsOverview = ::buildConnectedChannelsOverview,
             mapObservedMessagesToUi = { messages ->
                 refreshConversationMetrics(messages)
-                mapMessagesToUi(messages.filter { it.shouldDisplayInChat() })
+                withTraceUiMessage(mapMessagesToUi(messages.filter { it.shouldDisplayInChat() }), _uiState.value)
             },
             resolveOnboardingConfig = { onboardingCoordinator.resolveSyncedOnboardingConfig() }
         ),
@@ -805,6 +806,8 @@ class ChatViewModel(
         generatingJob = viewModelScope.launch {
             try {
                 val sessionId = currentSessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID }
+                beginTraceRun(sessionId)
+                updateInlineTrace(sessionId, "准备执行", "正在把你的消息交给智能体调度。")
                 val sessionTitle = _uiState.value.currentSessionTitle.ifBlank { sessionId }
                 runUserMessageViaActiveRuntime(
                     sessionId = sessionId,
@@ -815,6 +818,7 @@ class ChatViewModel(
                 // User stopped generation; state cleanup happens in finally.
             } finally {
                 generatingJob = null
+                finishTraceRun(sessionId = currentSessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID })
                 syncGeneratingState()
                 loadSettingsIntoState()
             }
@@ -837,6 +841,8 @@ class ChatViewModel(
             try {
                 _uiState.update { it.copy(isGenerating = true) }
                 val sessionId = currentSessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID }
+                beginTraceRun(sessionId)
+                updateInlineTrace(sessionId, "终端", "正在运行终端命令。")
                 terminalController.runCommand(
                     TerminalExecutionRequest(
                         sessionId = sessionId,
@@ -849,6 +855,7 @@ class ChatViewModel(
                 terminalController.cancelActive(currentSessionId)
             } finally {
                 generatingJob = null
+                finishTraceRun(sessionId = currentSessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID })
                 syncGeneratingState()
                 syncTerminalRuntimeState(terminalController.state.value)
             }
@@ -1671,6 +1678,7 @@ class ChatViewModel(
         synchronized(gatewayProcessingSessions) {
             gatewayProcessingSessions.remove(currentSessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID })
         }
+        finishTraceRun(sessionId = currentSessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID })
         _uiState.update { it.copy(isPlanning = false, isGenerating = false) }
         showSettingsInfo(
             when {
@@ -2125,15 +2133,15 @@ class ChatViewModel(
                     themeBubbleStyle = UiBubbleStyle.Frosted.key,
                     themeFontFamily = UiFontFamilyChoice.System.key,
                     themeTextColorHex = "",
-                    themeUserBubbleColorHex = "#FFF1D8",
+                    themeUserBubbleColorHex = "#FFF0D6",
                     themeAssistantBubbleColorHex = "#FFFFFF",
-                    themeToolBubbleColorHex = "#F4F7F1",
-                    themeBubbleOpacity = 0.94f,
+                    themeToolBubbleColorHex = "#F6F8F3",
+                    themeBubbleOpacity = 0.96f,
                     themeBubbleCornerRadius = 18f,
-                    themeBubbleBorderAlpha = 0.28f,
-                    themeBubbleHighlightAlpha = 0.18f,
-                    themeBubbleShadowAlpha = 0.08f,
-                    themeBubbleGlassStrength = 0.26f,
+                    themeBubbleBorderAlpha = 0.22f,
+                    themeBubbleHighlightAlpha = 0.12f,
+                    themeBubbleShadowAlpha = 0.05f,
+                    themeBubbleGlassStrength = 0.20f,
                     themeMessageFontSizeSp = 14f,
                     themeMessageLineHeightMultiplier = 1.18f,
                     chatBackgroundOpacity = current.chatBackgroundOpacity,
@@ -2148,15 +2156,15 @@ class ChatViewModel(
                     themeBubbleStyle = UiBubbleStyle.Water.key,
                     themeFontFamily = UiFontFamilyChoice.Sans.key,
                     themeTextColorHex = "",
-                    themeUserBubbleColorHex = "#D7F3FF",
-                    themeAssistantBubbleColorHex = "#FAFCFF",
-                    themeToolBubbleColorHex = "#E8F8F3",
-                    themeBubbleOpacity = 0.78f,
-                    themeBubbleCornerRadius = 22f,
-                    themeBubbleBorderAlpha = 0.54f,
-                    themeBubbleHighlightAlpha = 0.46f,
-                    themeBubbleShadowAlpha = 0.16f,
-                    themeBubbleGlassStrength = 0.72f,
+                    themeUserBubbleColorHex = "#DDF5FF",
+                    themeAssistantBubbleColorHex = "#FBFDFF",
+                    themeToolBubbleColorHex = "#ECF8F5",
+                    themeBubbleOpacity = 0.86f,
+                    themeBubbleCornerRadius = 20f,
+                    themeBubbleBorderAlpha = 0.34f,
+                    themeBubbleHighlightAlpha = 0.28f,
+                    themeBubbleShadowAlpha = 0.08f,
+                    themeBubbleGlassStrength = 0.48f,
                     themeMessageFontSizeSp = 14.2f,
                     themeMessageLineHeightMultiplier = 1.2f,
                     chatBackgroundOpacity = 0.22f,
@@ -2176,10 +2184,10 @@ class ChatViewModel(
                     themeToolBubbleColorHex = "#F1F6EC",
                     themeBubbleOpacity = 0.98f,
                     themeBubbleCornerRadius = 17f,
-                    themeBubbleBorderAlpha = 0.24f,
-                    themeBubbleHighlightAlpha = 0.12f,
-                    themeBubbleShadowAlpha = 0.06f,
-                    themeBubbleGlassStrength = 0.18f,
+                    themeBubbleBorderAlpha = 0.20f,
+                    themeBubbleHighlightAlpha = 0.08f,
+                    themeBubbleShadowAlpha = 0.04f,
+                    themeBubbleGlassStrength = 0.12f,
                     themeMessageFontSizeSp = 15f,
                     themeMessageLineHeightMultiplier = 1.32f,
                     chatBackgroundOpacity = 0.14f,
@@ -2189,20 +2197,43 @@ class ChatViewModel(
                     drawerBackgroundBlur = current.drawerBackgroundBlur,
                     drawerBackgroundGlass = current.drawerBackgroundGlass
                 )
+                "plain_flow" -> UiPreferencesConfig(
+                    themePreset = "plain_flow",
+                    themeBubbleStyle = UiBubbleStyle.None.key,
+                    themeFontFamily = UiFontFamilyChoice.Sans.key,
+                    themeTextColorHex = "#171A20",
+                    themeUserBubbleColorHex = "#FFFFFF",
+                    themeAssistantBubbleColorHex = "#FFFFFF",
+                    themeToolBubbleColorHex = "#F6F8FA",
+                    themeBubbleOpacity = 1f,
+                    themeBubbleCornerRadius = 12f,
+                    themeBubbleBorderAlpha = 0f,
+                    themeBubbleHighlightAlpha = 0f,
+                    themeBubbleShadowAlpha = 0f,
+                    themeBubbleGlassStrength = 0f,
+                    themeMessageFontSizeSp = 14.6f,
+                    themeMessageLineHeightMultiplier = 1.28f,
+                    chatBackgroundOpacity = 0.06f,
+                    chatBackgroundBlur = current.chatBackgroundBlur,
+                    chatBackgroundGlass = 0.08f,
+                    drawerBackgroundOpacity = current.drawerBackgroundOpacity,
+                    drawerBackgroundBlur = current.drawerBackgroundBlur,
+                    drawerBackgroundGlass = current.drawerBackgroundGlass
+                )
                 "neon_night" -> UiPreferencesConfig(
                     themePreset = "neon_night",
                     themeBubbleStyle = UiBubbleStyle.Water.key,
                     themeFontFamily = UiFontFamilyChoice.Sans.key,
                     themeTextColorHex = "",
-                    themeUserBubbleColorHex = "#E6F4FF",
+                    themeUserBubbleColorHex = "#EAF4FF",
                     themeAssistantBubbleColorHex = "#FFFFFF",
                     themeToolBubbleColorHex = "#EAF7F3",
-                    themeBubbleOpacity = 0.82f,
-                    themeBubbleCornerRadius = 21f,
-                    themeBubbleBorderAlpha = 0.58f,
-                    themeBubbleHighlightAlpha = 0.52f,
-                    themeBubbleShadowAlpha = 0.18f,
-                    themeBubbleGlassStrength = 0.76f,
+                    themeBubbleOpacity = 0.88f,
+                    themeBubbleCornerRadius = 20f,
+                    themeBubbleBorderAlpha = 0.36f,
+                    themeBubbleHighlightAlpha = 0.30f,
+                    themeBubbleShadowAlpha = 0.09f,
+                    themeBubbleGlassStrength = 0.52f,
                     themeMessageFontSizeSp = 14f,
                     themeMessageLineHeightMultiplier = 1.2f,
                     chatBackgroundOpacity = 0.2f,
@@ -2217,15 +2248,15 @@ class ChatViewModel(
                     themeBubbleStyle = UiBubbleStyle.Frosted.key,
                     themeFontFamily = UiFontFamilyChoice.Sans.key,
                     themeTextColorHex = "",
-                    themeUserBubbleColorHex = "#DCEBFF",
+                    themeUserBubbleColorHex = "#E4EEFF",
                     themeAssistantBubbleColorHex = "#FFFFFF",
                     themeToolBubbleColorHex = "#ECF7F2",
-                    themeBubbleOpacity = 0.9f,
-                    themeBubbleCornerRadius = 20f,
-                    themeBubbleBorderAlpha = 0.38f,
-                    themeBubbleHighlightAlpha = 0.28f,
-                    themeBubbleShadowAlpha = 0.1f,
-                    themeBubbleGlassStrength = 0.46f,
+                    themeBubbleOpacity = 0.94f,
+                    themeBubbleCornerRadius = 19f,
+                    themeBubbleBorderAlpha = 0.26f,
+                    themeBubbleHighlightAlpha = 0.16f,
+                    themeBubbleShadowAlpha = 0.06f,
+                    themeBubbleGlassStrength = 0.32f,
                     themeMessageFontSizeSp = 14f,
                     themeMessageLineHeightMultiplier = 1.18f,
                     chatBackgroundOpacity = 0.18f,
@@ -4600,16 +4631,36 @@ class ChatViewModel(
             if (path.isBlank()) return@mapNotNull null
             val mime = fields["mime"].orEmpty()
             val id = fields["id"].orEmpty()
+            val size = fields["size"].orEmpty().toLongOrNull() ?: 0L
+            val contentUri = fields["uri"].orEmpty()
+            val previewType = fields["preview"].orEmpty()
             val rawKind = match.groupValues[1].ifBlank { match.groupValues[2] }
-            val kind = if (rawKind == "图片" || rawKind == "image") UiMediaKind.Image else UiMediaKind.Document
+            val kind = when {
+                rawKind == "图片" || rawKind == "image" || previewType == "image" -> UiMediaKind.Image
+                rawKind == "video" || previewType == "video" -> UiMediaKind.Video
+                rawKind == "audio" || previewType == "audio" -> UiMediaKind.Audio
+                else -> UiMediaKind.Document
+            }
             UiMediaAttachment(
                 reference = path,
                 kind = kind,
                 label = fields["name"].orEmpty().ifBlank { File(path).name },
                 mimeType = mime,
-                fileId = id
+                fileId = id,
+                sizeBytes = size,
+                previewText = attachmentPreviewFromIndex(id),
+                contentUri = contentUri
             )
         }.take(MAX_MEDIA_ATTACHMENTS_PER_MESSAGE).toList()
+    }
+
+    private fun attachmentPreviewFromIndex(id: String): String {
+        if (id.isBlank()) return ""
+        return runCatching {
+            val bridge = AttachmentBridge(getApplication<Application>())
+            val preview = kotlinx.coroutines.runBlocking(Dispatchers.IO) { bridge.generatePreview(id) }
+            preview.previewText.orEmpty()
+        }.getOrDefault("")
     }
 
     private fun buildCombinedToolUiMessage(
@@ -4826,7 +4877,14 @@ class ChatViewModel(
                     kind = kind,
                     label = fileName.ifBlank { File(attachmentPath).name.ifBlank { "附件" } },
                     mimeType = mime,
-                    fileId = attachmentId
+                    fileId = attachmentId,
+                    sizeBytes = metadataString(parsed?.metadata, "size")
+                        ?.toLongOrNull()
+                        ?: metadataString(parsed?.metadata, "size_bytes")?.toLongOrNull()
+                        ?: 0L,
+                    previewText = attachmentPreviewFromIndex(attachmentId),
+                    contentUri = metadataString(parsed?.metadata, "content_uri").orEmpty()
+                        .ifBlank { metadataString(parsed?.metadata, "uri").orEmpty() }
                 )
             )
         }
@@ -5217,6 +5275,7 @@ class ChatViewModel(
                 text = text
             )
             val freshMessages = messageRepository.getMessages(sessionId)
+            updateTraceAnchorFromMessages(sessionId, freshMessages)
             refreshConversationMetrics(freshMessages)
             return
         }
@@ -5227,20 +5286,140 @@ class ChatViewModel(
             text = text
         )
         val freshMessages = messageRepository.getMessages(sessionId)
+        updateTraceAnchorFromMessages(sessionId, freshMessages)
         refreshConversationMetrics(freshMessages)
     }
 
     fun updateInlineTrace(sessionId: String, title: String, detail: String) {
+        val cleanTitle = TraceNoteExtractor.cleanTraceText(title, 80).ifBlank { "状态" }
+        val cleanDetail = TraceNoteExtractor.displayDetail(title, detail)
         val trace = UiInlineTrace(
             id = UUID.randomUUID().toString(),
             sessionId = sessionId,
-            title = title,
-            detail = detail,
-            createdAt = System.currentTimeMillis()
+            title = cleanTitle,
+            detail = cleanDetail,
+            createdAt = System.currentTimeMillis(),
+            sourceType = TraceNoteExtractor.sourceType(title, detail),
+            sourceName = TraceNoteExtractor.sourceName(title, detail),
+            rawPreview = TraceNoteExtractor.rawPreview(detail)
         )
         _uiState.update { state ->
-            state.copy(inlineTraces = (state.inlineTraces + trace).takeLast(24))
+            val nextState = state.copy(inlineTraces = appendTraceDeduped(state.inlineTraces, trace))
+            nextState.copy(messages = withTraceUiMessage(nextState.messages, nextState))
         }
+    }
+
+    private fun beginTraceRun(sessionId: String) {
+        val sid = sessionId.trim()
+        _uiState.update { state ->
+            state.copy(
+                inlineTraces = state.inlineTraces.filterNot { it.sessionId == sid },
+                activeTraceAnchorMessageId = null,
+                traceRunning = true,
+                traceSessionId = sid,
+                traceCompletedAt = 0L
+            ).let { it.copy(messages = withTraceUiMessage(it.messages, it)) }
+        }
+    }
+
+    private fun finishTraceRun(sessionId: String) {
+        val sid = sessionId.trim()
+        _uiState.update { state ->
+            if (state.traceSessionId != sid && state.traceSessionId.isNotBlank()) {
+                state
+            } else {
+                state.copy(
+                    traceRunning = false,
+                    traceCompletedAt = if (state.inlineTraces.isNotEmpty()) System.currentTimeMillis() else 0L,
+                    traceSessionId = sid
+                ).let { it.copy(messages = withTraceUiMessage(it.messages, it)) }
+            }
+        }
+    }
+
+    private fun updateTraceAnchorFromMessages(sessionId: String, messages: List<MessageEntity>) {
+        val sid = sessionId.trim()
+        val anchorId = messages.asReversed().firstOrNull { it.role == "user" }?.id ?: return
+        _uiState.update { state ->
+            if (state.traceSessionId == sid || state.traceSessionId.isBlank()) {
+                state.copy(activeTraceAnchorMessageId = anchorId, traceSessionId = sid)
+                    .let { it.copy(messages = withTraceUiMessage(it.messages, it)) }
+            } else {
+                state
+            }
+        }
+    }
+
+    private fun buildTraceUiMessage(state: ChatUiState, visibleMessages: List<UiMessage> = state.messages): UiMessage? {
+        val sid = state.currentSessionId.trim()
+        val traces = state.inlineTraces
+            .filter { it.sessionId == sid }
+            .sortedBy { it.createdAt }
+            .takeLast(24)
+        if (traces.isEmpty()) return null
+        val anchor = state.activeTraceAnchorMessageId
+            ?: visibleMessages.asReversed().firstOrNull { it.role == "user" && it.id > 0L }?.id
+            ?: return null
+        return UiMessage(
+            id = syntheticTraceMessageId(anchor),
+            role = "trace",
+            content = traces.lastOrNull()?.detail.orEmpty(),
+            createdAt = traces.lastOrNull()?.createdAt ?: System.currentTimeMillis(),
+            traceItems = traces,
+            traceRunning = state.traceRunning,
+            traceAnchorMessageId = anchor
+        )
+    }
+
+    private fun syntheticTraceMessageId(anchorId: Long): Long = -(anchorId.coerceAtLeast(1L) * 1000L + 77L)
+
+    private fun withTraceUiMessage(messages: List<UiMessage>, state: ChatUiState): List<UiMessage> {
+        val cleaned = messages.filterNot { it.role == "trace" }
+        val traceMessage = buildTraceUiMessage(state, cleaned) ?: return cleaned
+        val anchorIndex = cleaned.indexOfLast { it.id == traceMessage.traceAnchorMessageId }
+        if (anchorIndex < 0) return cleaned + traceMessage
+        return buildList {
+            addAll(cleaned.take(anchorIndex + 1))
+            add(traceMessage)
+            addAll(cleaned.drop(anchorIndex + 1))
+        }
+    }
+
+    private fun appendTraceDeduped(current: List<UiInlineTrace>, trace: UiInlineTrace): List<UiInlineTrace> {
+        val normalizedDetail = trace.detail.trim()
+        if (normalizedDetail.isBlank()) return current
+        val normalizedSourceName = trace.sourceName.trim()
+        val duplicateIndex = current.indexOfLast {
+            it.sessionId == trace.sessionId &&
+                it.sourceType == trace.sourceType &&
+                it.sourceName.trim() == normalizedSourceName &&
+                it.detail.trim() == normalizedDetail
+        }
+        val mergeIndex = if (duplicateIndex >= 0) {
+            duplicateIndex
+        } else {
+            current.indexOfLast {
+                val existingDetail = it.detail.trim()
+                it.sessionId == trace.sessionId &&
+                    it.sourceType == trace.sourceType &&
+                    it.sourceName.trim() == normalizedSourceName &&
+                    existingDetail.length >= 8 &&
+                    (normalizedDetail.contains(existingDetail) || existingDetail.contains(normalizedDetail))
+            }
+        }
+        val next = if (mergeIndex >= 0) {
+            current.toMutableList().also {
+                val existing = it[mergeIndex]
+                val preferred = if (normalizedDetail.length >= existing.detail.trim().length) trace else existing
+                it[mergeIndex] = preferred.copy(
+                    id = existing.id,
+                    createdAt = maxOf(existing.createdAt, trace.createdAt)
+                )
+            }
+        } else {
+            current + trace
+        }
+        return next.takeLast(24)
     }
 
     private fun currentAgentAvatarFor(agentId: String?, profiles: List<UiAgentProfile>): UiAvatarInfo {
@@ -5308,20 +5487,28 @@ class ChatViewModel(
                     .toSet()
                 _uiState.update { state ->
                     val currentSession = state.currentSessionId.trim()
-                    state.copy(
-                        inlineTraces = status.inlineTraces
-                            .filter { it.sessionId == currentSession }
-                            .takeLast(8)
-                            .mapIndexed { index, trace ->
-                                UiInlineTrace(
-                                    id = "${trace.createdAt}-$index",
-                                    sessionId = trace.sessionId,
-                                    title = trace.title,
-                                    detail = trace.detail,
-                                    createdAt = trace.createdAt
-                                )
-                            }
-                    )
+                    val runtimeTraces = status.inlineTraces
+                        .filter { it.sessionId == currentSession }
+                        .takeLast(24)
+                        .mapIndexed { index, trace ->
+                            val title = TraceNoteExtractor.cleanTraceText(trace.title, 80).ifBlank { "状态" }
+                            val detail = TraceNoteExtractor.displayDetail(trace.title, trace.detail)
+                            UiInlineTrace(
+                                id = "${trace.createdAt}-$index",
+                                sessionId = trace.sessionId,
+                                title = title,
+                                detail = detail,
+                                createdAt = trace.createdAt,
+                                sourceType = TraceNoteExtractor.sourceType(trace.title, trace.detail),
+                                sourceName = TraceNoteExtractor.sourceName(trace.title, trace.detail),
+                                rawPreview = TraceNoteExtractor.rawPreview(trace.detail)
+                            )
+                        }
+                    val merged = runtimeTraces.fold(state.inlineTraces.filter { it.sessionId == currentSession }) { acc, trace ->
+                        appendTraceDeduped(acc, trace)
+                    }
+                    state.copy(inlineTraces = merged)
+                        .let { it.copy(messages = withTraceUiMessage(it.messages, it)) }
                 }
                 updateObservedGatewayProcessingSessions()
             }

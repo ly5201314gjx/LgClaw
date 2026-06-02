@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Face
 import androidx.compose.material.icons.rounded.Portrait
 import androidx.compose.material.icons.rounded.WavingHand
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.lgclaw.agents.AvatarCropSpec
 import java.io.File
@@ -344,5 +347,232 @@ internal fun InlineTraceBar(
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun InlineTraceFlowBar(
+    traces: List<UiInlineTrace>,
+    collapsed: Boolean,
+    running: Boolean,
+    onToggleCollapsed: () -> Unit,
+    onTraceLongPress: (UiInlineTrace) -> Unit,
+    fontSizeSp: Float = 14f,
+    lineHeightMultiplier: Float = 1.18f,
+    modifier: Modifier = Modifier
+) {
+    if (traces.isEmpty()) return
+    val latest = traces.last()
+    val visibleTraceMessages = if (collapsed) emptyList() else traces.takeLast(24)
+    val baseSp = fontSizeSp.coerceIn(12f, 20f)
+    val lineMultiplier = lineHeightMultiplier.coerceIn(1f, 1.7f)
+    val bodySize = baseSp.sp
+    val bodyLineHeight = (baseSp * lineMultiplier).sp
+    val pillSize = (baseSp - 1f).coerceIn(11f, 18f).sp
+    val badgeSize = (baseSp - 3f).coerceIn(9f, 14f).sp
+    val elapsedSeconds = traceElapsedSeconds(traces)
+    val statusLabel = if (running) {
+        "思考中"
+    } else if (elapsedSeconds > 0) {
+        "思考完成（用时${elapsedSeconds}秒）"
+    } else {
+        "思考完成"
+    }
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggleCollapsed)
+                    .padding(horizontal = 2.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                if (running) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(15.dp),
+                        strokeWidth = 1.6.dp,
+                        color = Color(0xFF5D6675)
+                    )
+                } else {
+                    Surface(
+                        modifier = Modifier.size(28.dp),
+                        shape = CircleShape,
+                        color = Color(0xFFF6F8FB),
+                        border = BorderStroke(1.dp, Color(0xFFE1E6EF))
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "C",
+                                style = MaterialTheme.typography.labelMedium.copy(fontSize = badgeSize),
+                                fontWeight = FontWeight.Black,
+                                color = Color(0xFF4B5565)
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = if (running) "已思考" else statusLabel,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = pillSize, lineHeight = bodyLineHeight),
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF5B6675),
+                    maxLines = 1
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(1.dp)
+                        .background(Color(0xFFD8DEE8))
+                )
+                Icon(
+                    imageVector = if (collapsed) Icons.Rounded.KeyboardArrowDown else Icons.Rounded.KeyboardArrowUp,
+                    contentDescription = if (collapsed) "展开思考" else "折叠思考",
+                    tint = Color(0xFF667085),
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            if (!running && !collapsed) {
+                Text(
+                    text = statusLabel,
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = badgeSize),
+                    color = Color(0xFF697586),
+                    modifier = Modifier.padding(start = 2.dp)
+                )
+            }
+        }
+        visibleTraceMessages.forEach { trace ->
+            val kind = traceKindLabel(trace)
+            val detail = trace.detail.ifBlank { trace.title }
+            if (kind == "工具") {
+                TraceToolPill(
+                    trace = trace,
+                    titleFontSizeSp = (baseSp - 1f).coerceIn(11f, 18f),
+                    badgeFontSizeSp = (baseSp - 3f).coerceIn(9f, 14f),
+                    onLongPress = { onTraceLongPress(trace) }
+                )
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .combinedClickable(
+                            onClick = {},
+                            onLongClick = { onTraceLongPress(trace) }
+                        )
+                        .padding(start = 2.dp, top = 1.dp, bottom = 3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(2.dp)
+                            .height(22.dp)
+                            .background(Color(0xFFD9E0EA))
+                    )
+                    Text(
+                        text = detail,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = bodySize, lineHeight = bodyLineHeight),
+                        color = Color(0xFF263241),
+                        maxLines = 40,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TraceToolPill(
+    trace: UiInlineTrace,
+    titleFontSizeSp: Float,
+    badgeFontSizeSp: Float,
+    onLongPress: () -> Unit
+) {
+    val color = traceKindColor(trace)
+    Row(
+        modifier = Modifier
+            .combinedClickable(onClick = {}, onLongClick = onLongPress)
+            .padding(start = 2.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            shape = RoundedCornerShape(999.dp),
+            color = color.copy(alpha = 0.08f),
+            border = BorderStroke(1.dp, color.copy(alpha = 0.06f))
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                Surface(
+                    modifier = Modifier.size(24.dp),
+                    shape = CircleShape,
+                    color = color.copy(alpha = 0.12f),
+                    contentColor = color
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text("◎", style = MaterialTheme.typography.labelMedium.copy(fontSize = badgeFontSizeSp.sp), fontWeight = FontWeight.Black)
+                    }
+                }
+                Text(
+                    text = trace.sourceName.ifBlank { trace.detail.ifBlank { "工具调度" } },
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = titleFontSizeSp.sp),
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF263241),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = Color.White.copy(alpha = 0.78f),
+                    contentColor = color
+                ) {
+                    Text(
+                        text = if (trace.title.contains("失败") || trace.detail.contains("失败")) "失败" else "成功",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = badgeFontSizeSp.sp),
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun traceElapsedSeconds(traces: List<UiInlineTrace>): Long {
+    val first = traces.firstOrNull()?.createdAt ?: return 0L
+    val last = traces.lastOrNull()?.createdAt ?: return 0L
+    return ((last - first).coerceAtLeast(0L) / 1000L).coerceAtLeast(0L)
+}
+
+private fun traceKindLabel(trace: UiInlineTrace): String {
+    trace.sourceType.takeIf { it.isNotBlank() }?.let { return it }
+    val text = "${trace.title} ${trace.detail}".lowercase()
+    return when {
+        "terminal" in text || "终端" in text || "terminal_exec" in text -> "终端"
+        "skill" in text || "技能" in text -> "技能"
+        "tool" in text || "工具" in text -> "工具"
+        "模型" in text || "请求" in text -> "模型"
+        "计划" in text -> "计划"
+        else -> trace.title.take(4).ifBlank { "状态" }
+    }
+}
+
+private fun traceKindColor(trace: UiInlineTrace): Color {
+    return when (traceKindLabel(trace)) {
+        "终端" -> Color(0xFF0F766E)
+        "技能" -> Color(0xFF7C3AED)
+        "工具" -> Color(0xFF2563EB)
+        "模型" -> Color(0xFFEA580C)
+        "计划" -> Color(0xFF111827)
+        else -> Color(0xFF3977F6)
     }
 }

@@ -7,6 +7,7 @@ import androidx.core.content.FileProvider
 import com.lgclaw.config.AppStoragePaths
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -22,24 +23,49 @@ import java.util.UUID
 @Serializable
 data class AttachmentRef(
     val id: String,
-    val fileName: String,
+    val displayName: String,
     val mimeType: String,
-    val sizeBytes: Long,
-    val path: String,
-    val kind: String,
-    val createdAt: Long
-)
+    val size: Long,
+    val localUri: String,
+    val contentUri: String,
+    val createdAt: Long,
+    val previewType: String,
+    @SerialName("fileName")
+    val legacyFileName: String = displayName,
+    @SerialName("sizeBytes")
+    val legacySizeBytes: Long = size,
+    @SerialName("path")
+    val legacyPath: String = localUri,
+    @SerialName("kind")
+    val legacyKind: String = previewType
+) {
+    val fileName: String get() = displayName
+    val sizeBytes: Long get() = size
+    val path: String get() = localUri
+    val kind: String get() = previewType
+}
 
 @Serializable
 data class AttachmentPreview(
     val attachmentId: String,
-    val kind: String,
-    val fileName: String,
+    val previewType: String,
+    val displayName: String,
     val mimeType: String,
-    val sizeBytes: Long,
+    val size: Long,
+    val contentUri: String,
     val thumbnailUri: String? = null,
-    val previewText: String? = null
-)
+    val previewText: String? = null,
+    @SerialName("kind")
+    val legacyKind: String = previewType,
+    @SerialName("fileName")
+    val legacyFileName: String = displayName,
+    @SerialName("sizeBytes")
+    val legacySizeBytes: Long = size
+) {
+    val kind: String get() = previewType
+    val fileName: String get() = displayName
+    val sizeBytes: Long get() = size
+}
 
 class AttachmentBridge(
     context: Context
@@ -48,26 +74,38 @@ class AttachmentBridge(
     private val rootDir: File = AppStoragePaths.attachmentsDir(appContext)
     private val indexFile: File = File(rootDir, INDEX_FILE_NAME)
 
-    suspend fun importFromUri(uri: Uri): AttachmentRef = withContext(Dispatchers.IO) {
+    suspend fun importFromUri(
+        uri: Uri,
+        displayNameOverride: String? = null,
+        mimeTypeOverride: String? = null
+    ): AttachmentRef = withContext(Dispatchers.IO) {
         val resolver = appContext.contentResolver
-        val displayName = queryDisplayName(uri).ifBlank { uri.lastPathSegment.orEmpty() }.ifBlank { "attachment" }
-        val mimeType = resolver.getType(uri).orEmpty().ifBlank { guessMimeType(displayName) }
+        val displayName = displayNameOverride?.takeIf { it.isNotBlank() }
+            ?: queryDisplayName(uri).ifBlank { uri.lastPathSegment.orEmpty() }.ifBlank { "attachment" }
+        val mimeType = mimeTypeOverride?.takeIf { it.isNotBlank() }
+            ?: resolver.getType(uri).orEmpty().ifBlank { guessMimeType(displayName) }
         val target = nextTargetFile(displayName)
         resolver.openInputStream(uri)?.use { input ->
             FileOutputStream(target).use { output -> input.copyTo(output) }
         } ?: throw IllegalArgumentException("无法读取所选文件")
-        val size = querySize(uri).takeIf { it >= 0L } ?: target.length()
-        val ref = AttachmentRef(
-            id = newAttachmentId(),
-            fileName = target.name,
-            mimeType = mimeType,
-            sizeBytes = if (size > 0L) size else target.length(),
-            path = target.absolutePath,
-            kind = kindForMime(mimeType, target.name),
-            createdAt = System.currentTimeMillis()
-        )
-        upsert(ref)
-        ref
+        val queriedSize = querySize(uri).takeIf { it >= 0L }
+        createRef(target, displayName = target.name, mimeType = mimeType, size = queriedSize ?: target.length())
+    }
+
+    suspend fun importFromFile(
+        sourcePath: String,
+        displayNameOverride: String? = null,
+        mimeTypeOverride: String? = null
+    ): AttachmentRef = withContext(Dispatchers.IO) {
+        val source = File(sourcePath)
+        require(source.exists() && source.isFile) { "source_file_not_found" }
+        val displayName = displayNameOverride?.takeIf { it.isNotBlank() } ?: source.name.ifBlank { "attachment" }
+        val mimeType = mimeTypeOverride?.takeIf { it.isNotBlank() } ?: guessMimeType(displayName)
+        val target = nextTargetFile(displayName)
+        source.inputStream().use { input ->
+            FileOutputStream(target).use { output -> input.copyTo(output) }
+        }
+        createRef(target, displayName = target.name, mimeType = mimeType, size = target.length())
     }
 
     suspend fun saveBytes(
@@ -78,17 +116,7 @@ class AttachmentBridge(
         val target = nextTargetFile(fileName.ifBlank { "attachment" })
         FileOutputStream(target).use { it.write(bytes) }
         val finalMime = mimeType.ifBlank { guessMimeType(target.name) }
-        val ref = AttachmentRef(
-            id = newAttachmentId(),
-            fileName = target.name,
-            mimeType = finalMime,
-            sizeBytes = target.length(),
-            path = target.absolutePath,
-            kind = kindForMime(finalMime, target.name),
-            createdAt = System.currentTimeMillis()
-        )
-        upsert(ref)
-        ref
+        createRef(target, displayName = target.name, mimeType = finalMime, size = target.length())
     }
 
     suspend fun readText(
@@ -96,7 +124,7 @@ class AttachmentBridge(
         maxChars: Int = 12_000
     ): String = withContext(Dispatchers.IO) {
         val ref = getRef(attachmentId)
-        if (!isTextLike(ref.mimeType, ref.fileName)) {
+        if (!isTextLike(ref.mimeType, ref.displayName)) {
             throw IllegalArgumentException("unsupported_text_extraction")
         }
         val file = checkedFile(ref)
@@ -128,14 +156,16 @@ class AttachmentBridge(
 
     suspend fun generatePreview(attachmentId: String): AttachmentPreview = withContext(Dispatchers.IO) {
         val ref = getRef(attachmentId)
+        val contentUri = ref.contentUri.ifBlank { getShareUri(ref.id).toString() }
         AttachmentPreview(
             attachmentId = ref.id,
-            kind = ref.kind,
-            fileName = ref.fileName,
+            previewType = ref.previewType,
+            displayName = ref.displayName,
             mimeType = ref.mimeType,
-            sizeBytes = ref.sizeBytes,
-            thumbnailUri = if (ref.kind == KIND_IMAGE) getShareUri(ref.id).toString() else null,
-            previewText = if (isTextLike(ref.mimeType, ref.fileName)) {
+            size = ref.size,
+            contentUri = contentUri,
+            thumbnailUri = if (ref.previewType == PREVIEW_IMAGE) contentUri else null,
+            previewText = if (isTextLike(ref.mimeType, ref.displayName)) {
                 runCatching { readText(ref.id, maxChars = PREVIEW_TEXT_CHARS) }.getOrNull()
             } else {
                 null
@@ -149,6 +179,39 @@ class AttachmentBridge(
 
     suspend fun getRef(attachmentId: String): AttachmentRef = withContext(Dispatchers.IO) {
         getRefSync(attachmentId)
+    }
+
+    fun markerFor(ref: AttachmentRef): String {
+        val type = when (ref.previewType) {
+            PREVIEW_IMAGE -> "image"
+            PREVIEW_VIDEO -> "video"
+            PREVIEW_AUDIO -> "audio"
+            else -> "document"
+        }
+        return "[LGCLAW_ATTACHMENT:$type|id=${ref.id}|name=${ref.displayName}|mime=${ref.mimeType}|path=${ref.localUri}|size=${ref.size}|uri=${ref.contentUri}|preview=${ref.previewType}]"
+    }
+
+    private fun createRef(target: File, displayName: String, mimeType: String, size: Long): AttachmentRef {
+        val id = newAttachmentId()
+        val previewType = previewTypeForMime(mimeType, target.name)
+        val localUri = target.absolutePath
+        val contentUri = FileProvider.getUriForFile(
+            appContext,
+            "${appContext.packageName}.fileprovider",
+            target
+        ).toString()
+        val ref = AttachmentRef(
+            id = id,
+            displayName = displayName,
+            mimeType = mimeType,
+            size = if (size > 0L) size else target.length(),
+            localUri = localUri,
+            contentUri = contentUri,
+            createdAt = System.currentTimeMillis(),
+            previewType = previewType
+        )
+        upsert(ref)
+        return ref
     }
 
     private fun getRefSync(attachmentId: String): AttachmentRef {
@@ -186,7 +249,7 @@ class AttachmentBridge(
     }
 
     private fun checkedFile(ref: AttachmentRef): File {
-        val file = File(ref.path)
+        val file = File(ref.localUri)
         val root = rootDir.canonicalFile
         val canonical = file.canonicalFile
         require(canonical.path.startsWith(root.path + File.separator) || canonical == root) {
@@ -241,18 +304,25 @@ class AttachmentBridge(
         return URLConnection.guessContentTypeFromName(name)
             ?: when (name.substringAfterLast('.', "").lowercase(Locale.US)) {
                 "md", "markdown", "log", "kt", "java", "py", "js", "ts", "css", "csv", "json", "xml", "html", "htm" -> "text/plain"
+                "pdf" -> "application/pdf"
+                "doc" -> "application/msword"
+                "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                "xls" -> "application/vnd.ms-excel"
+                "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                "zip" -> "application/zip"
                 else -> "application/octet-stream"
             }
     }
 
-    private fun kindForMime(mimeType: String, name: String): String {
+    private fun previewTypeForMime(mimeType: String, name: String): String {
         val lower = mimeType.lowercase(Locale.US)
         return when {
-            lower.startsWith("image/") -> KIND_IMAGE
-            lower.startsWith("video/") -> "video"
-            lower.startsWith("audio/") -> "audio"
-            isTextLike(mimeType, name) -> "text"
-            else -> "document"
+            lower.startsWith("image/") -> PREVIEW_IMAGE
+            lower.startsWith("video/") -> PREVIEW_VIDEO
+            lower.startsWith("audio/") -> PREVIEW_AUDIO
+            isTextLike(mimeType, name) -> PREVIEW_TEXT
+            lower.isBlank() || lower == "application/octet-stream" -> "unknown"
+            else -> PREVIEW_FILE
         }
     }
 
@@ -277,7 +347,11 @@ class AttachmentBridge(
 
     companion object {
         private const val INDEX_FILE_NAME = "index.json"
-        private const val KIND_IMAGE = "image"
+        private const val PREVIEW_IMAGE = "image"
+        private const val PREVIEW_TEXT = "text"
+        private const val PREVIEW_FILE = "file"
+        private const val PREVIEW_AUDIO = "audio"
+        private const val PREVIEW_VIDEO = "video"
         private const val PREVIEW_TEXT_CHARS = 1_000
         private const val MAX_SAFE_FILE_NAME_CHARS = 96
         private val TEXT_EXTENSIONS = setOf(

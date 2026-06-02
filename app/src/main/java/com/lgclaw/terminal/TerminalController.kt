@@ -216,12 +216,16 @@ object TerminalController {
                 readStream(sid, "stderr", launch.process.errorStream, outputBuffer)
             }
 
+            val effectiveTimeoutMs = adaptiveCommandTimeoutMs(request.command, request.timeoutMs)
+            var commandTimedOut = false
             val exitCode = try {
-                withTimeout(request.timeoutMs.coerceAtLeast(1_000L)) {
+                withTimeout(effectiveTimeoutMs) {
                     withContext(Dispatchers.IO) { launch.process.waitFor() }
                 }
             } catch (_: Throwable) {
+                commandTimedOut = true
                 launch.process.destroy()
+                runCatching { launch.process.destroyForcibly() }
                 -1
             }
 
@@ -233,12 +237,21 @@ object TerminalController {
             val resultText = outputBuffer.toString().trim()
             val status = runCatching { manager.inspect() }.getOrNull()
             val usedToolchain = launch.shellPath != "/system/bin/sh" && status?.missingExecutables?.isEmpty() != false
+            val timeoutMessage = if (commandTimedOut) {
+                "终端任务超过 ${effectiveTimeoutMs / 1000} 秒已自动停止。若是 pip/npm/uv 下载大包，请换镜像、分步安装，或提高 timeout_ms 后重试。"
+            } else {
+                null
+            }
+            if (timeoutMessage != null) appendStatusLine(sid, timeoutMessage)
             val result = TerminalExecutionResult(
                 sessionId = sid,
                 jobId = jobId,
                 command = request.command,
                 exitCode = exitCode,
-                output = resultText,
+                output = listOf(resultText, timeoutMessage)
+                    .filterNotNull()
+                    .filter { it.isNotBlank() }
+                    .joinToString("\n"),
                 startedAt = startedAt,
                 finishedAt = finishedAt,
                 workingDirectory = manager.workspaceDir(sid).absolutePath,
@@ -567,4 +580,32 @@ object TerminalController {
         }
         throw lastError ?: IOException("无法启动任何可用的 shell")
     }
+
+    private fun adaptiveCommandTimeoutMs(command: String, requestedTimeoutMs: Long): Long {
+        val normalized = command.lowercase()
+        val looksLongRunning = LONG_RUNNING_COMMAND_HINTS.any { normalized.contains(it) }
+        val baseline = when {
+            requestedTimeoutMs > 0L -> requestedTimeoutMs
+            looksLongRunning -> 600_000L
+            else -> 180_000L
+        }
+        val minimum = if (looksLongRunning) 300_000L else 30_000L
+        return baseline.coerceAtLeast(minimum).coerceAtMost(600_000L)
+    }
+
+    private val LONG_RUNNING_COMMAND_HINTS = listOf(
+        "pip install",
+        "python -m pip",
+        "uv pip install",
+        "npm install",
+        "npm i",
+        "pnpm install",
+        "yarn install",
+        "gradlew",
+        "assemble",
+        "test",
+        "git clone",
+        "curl ",
+        "wget "
+    )
 }

@@ -350,6 +350,7 @@ private fun drawerAdaptiveScrim(base: Color, imageOpacity: Float, glass: Float, 
         UiBubbleStyle.Native -> 0.02f
         UiBubbleStyle.Frosted -> 0.08f
         UiBubbleStyle.Water -> 0.12f
+        UiBubbleStyle.None -> 0.02f
     }
     val alpha = (glass * 0.66f + imageOpacity * 0.24f + styleBoost).coerceIn(0.1f, 0.72f)
     return base.copy(alpha = alpha)

@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.1.11 - 2026-06-02
+
+### Added
+
+- Rebuilt the chat home screen with a MiniMax-style white-glass launchpad, compact feature groups, and a refined composer bar.
+- Added compact bottom-sheet pickers for model switching and role-card binding, grouped by provider or role card.
+- Added full trace/note extraction helpers so public `assistant_note` / `note` / `think` text can be shown cleanly in tool detail views.
+
+### Improved
+
+- Tool results now stay compact in the transcript as short pills like `terminal_exec [ok]`; long-pressing a tool opens the bottom detail sheet.
+- Tool detail sheets now show note/think text, raw output, and attachments without flooding the message list.
+- Composer, trace rows, tool pills, attachment chips, and planning controls follow the theme message font size.
+- `attachment_send` now returns local path and media hints so agents can follow up with the `message` tool when sending images/files to remote channels.
+- Hardened provider fallback, terminal scheduling, and empty-response recovery paths so long tasks are less likely to end with a blank assistant response.
+
+### Verified
+
+- Debug APK rebuilt as `LGClaw-Pro-debug.apk`.
+- `compileDebugKotlin` passed.
+- `testDebugUnitTest` passed.
+- `assembleDebug` passed.
+
 ## v0.1.10 - 2026-06-02
 
 ### Added

@@ -24,8 +24,9 @@ fun createTerminalToolSet(
 private class TerminalExecTool(
     private val terminalController: TerminalController,
     private val currentSessionIdProvider: () -> String
-) : Tool {
+) : Tool, TimedTool {
     override val name: String = "terminal_exec"
+    override val timeoutMs: Long = 660_000L
     override val description: String =
         "在当前会话的独立工作区静默执行命令或代码。适合运行 node/npm、python/pip/uv、git、ssh、构建、测试、文件处理和代码检查。把终端当作后台工作器：用户聊天输入仍然属于 Agent，不属于终端。遇到缺少 pip/npm/uv 依赖时，可以先用 python -m pip install、uv pip install 或 npm install 自动安装，再重试一次；执行后必须读取退出码和输出再继续。"
 
@@ -39,7 +40,7 @@ private class TerminalExecTool(
                 """
                 {
                   "command": {"type": "string", "description": "要执行的 shell 命令、脚本或测试命令"},
-                  "timeout_ms": {"type": "integer", "minimum": 1000, "maximum": 600000},
+                  "timeout_ms": {"type": "integer", "minimum": 1000, "maximum": 600000, "description": "可选超时。下载、安装依赖、构建测试类任务建议 300000-600000。"},
                   "cwd": {"type": "string", "description": "可选工作目录，默认当前会话工作区"},
                   "session_id": {"type": "string", "description": "可选会话 ID，默认当前会话"}
                 }
@@ -61,11 +62,12 @@ private class TerminalExecTool(
             return ToolResult(toolCallId = "", content = "终端执行失败：命令不能为空", isError = true)
         }
         val sessionId = args.sessionId?.trim().orEmpty().ifBlank { currentSessionIdProvider() }
+        val timeoutMs = adaptiveTerminalTimeoutMs(command, args.timeoutMs)
         val result = terminalController.runCommand(
             TerminalExecutionRequest(
                 sessionId = sessionId,
                 command = command,
-                timeoutMs = args.timeoutMs?.toLong()?.coerceIn(1_000L, 600_000L) ?: 120_000L,
+                timeoutMs = timeoutMs,
                 cwd = args.cwd?.trim()?.ifBlank { null },
                 label = "agent"
             )
@@ -86,10 +88,23 @@ private class TerminalExecTool(
             metadata = buildJsonObject {
                 put("job_id", result.jobId)
                 put("exit_code", result.exitCode)
+                put("timeout_ms", timeoutMs)
                 put("working_directory", result.workingDirectory)
                 put("session_id", result.sessionId)
             }
         )
+    }
+
+    private fun adaptiveTerminalTimeoutMs(command: String, requested: Int?): Long {
+        val explicit = requested?.toLong()?.takeIf { it > 0 }
+        val normalized = command.lowercase()
+        val looksLongRunning = LONG_RUNNING_COMMAND_HINTS.any { normalized.contains(it) }
+        val baseline = when {
+            explicit != null -> explicit
+            looksLongRunning -> 600_000L
+            else -> 180_000L
+        }
+        return baseline.coerceIn(1_000L, 600_000L)
     }
 
     @Serializable
@@ -101,6 +116,24 @@ private class TerminalExecTool(
         @SerialName("session_id")
         val sessionId: String? = null
     )
+
+    companion object {
+        private val LONG_RUNNING_COMMAND_HINTS = listOf(
+            "pip install",
+            "python -m pip",
+            "uv pip install",
+            "npm install",
+            "npm i",
+            "pnpm install",
+            "yarn install",
+            "gradlew",
+            "assemble",
+            "test",
+            "git clone",
+            "curl ",
+            "wget "
+        )
+    }
 }
 
 private class TerminalCancelTool(

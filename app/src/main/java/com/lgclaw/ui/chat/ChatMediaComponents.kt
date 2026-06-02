@@ -1,4 +1,4 @@
-package com.lgclaw.ui
+﻿package com.lgclaw.ui
 
 import android.Manifest
 import android.app.Activity
@@ -47,6 +47,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.lazy.LazyColumn
@@ -206,6 +208,8 @@ internal fun MediaAttachmentList(
     currentPreviewAudioDurationMs: Int,
     currentPreviewAudioPositionMs: Int,
     onOpenAttachment: (UiMediaAttachment) -> Unit,
+    onShareAttachment: (UiMediaAttachment) -> Unit = {},
+    onSaveAttachment: (UiMediaAttachment) -> Unit = {},
     onToggleAudioPreview: (UiMediaAttachment) -> Unit
 ) {
     Column(
@@ -219,7 +223,9 @@ internal fun MediaAttachmentList(
                 UiMediaKind.Image -> {
                     ImageAttachmentCard(
                         attachment = attachment,
-                        onOpenAttachment = onOpenAttachment
+                        onOpenAttachment = onOpenAttachment,
+                        onShareAttachment = onShareAttachment,
+                        onSaveAttachment = onSaveAttachment
                     )
                 }
                 UiMediaKind.Video -> {
@@ -296,28 +302,46 @@ internal fun DocumentAttachmentCard(
                 Text(
                     text = listOf(
                         attachment.fileId.takeIf { it.isNotBlank() },
-                        attachment.mimeType.takeIf { it.isNotBlank() }
+                        attachment.mimeType.takeIf { it.isNotBlank() },
+                        attachment.sizeBytes.takeIf { it > 0L }?.let(::formatAttachmentSize)
                     ).filterNotNull().joinToString(" · ").ifBlank { "文件" },
                     style = MaterialTheme.typography.labelSmall,
                     color = Color(0xFF7B8494),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (attachment.previewText.isNotBlank()) {
+                    Text(
+                        text = attachment.previewText.take(180),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF596273),
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ImageAttachmentCard(
     attachment: UiMediaAttachment,
-    onOpenAttachment: (UiMediaAttachment) -> Unit
+    onOpenAttachment: (UiMediaAttachment) -> Unit,
+    onShareAttachment: (UiMediaAttachment) -> Unit,
+    onSaveAttachment: (UiMediaAttachment) -> Unit
 ) {
     val uri = remember(attachment.reference) { toAttachmentUri(attachment.reference) }
+    var menuExpanded by remember { mutableStateOf(false) }
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        tonalElevation = 1.dp,
-        modifier = Modifier.fillMaxWidth()
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White,
+        tonalElevation = 0.dp,
+        shadowElevation = 4.dp,
+        border = BorderStroke(1.dp, Color(0xFFE6EAF1)),
+        modifier = Modifier.widthIn(max = 280.dp)
     ) {
         Column(
             modifier = Modifier
@@ -329,7 +353,10 @@ internal fun ImageAttachmentCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 120.dp, max = 220.dp)
-                    .clickable { onOpenAttachment(attachment) }
+                    .combinedClickable(
+                        onClick = { onOpenAttachment(attachment) },
+                        onLongClick = { menuExpanded = true }
+                    )
             ) {
                 AndroidView(
                     modifier = Modifier.fillMaxWidth(),
@@ -350,6 +377,32 @@ internal fun ImageAttachmentCard(
                         }
                     }
                 )
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("保存图片") },
+                        onClick = {
+                            menuExpanded = false
+                            onSaveAttachment(attachment)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("分享") },
+                        onClick = {
+                            menuExpanded = false
+                            onShareAttachment(attachment)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("用其他应用打开") },
+                        onClick = {
+                            menuExpanded = false
+                            onOpenAttachment(attachment)
+                        }
+                    )
+                }
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -617,6 +670,17 @@ internal fun formatDuration(valueMs: Int): String {
     val min = totalSec / 60
     val sec = totalSec % 60
     return "%d:%02d".format(min, sec)
+}
+
+internal fun formatAttachmentSize(size: Long): String {
+    if (size <= 0L) return ""
+    val kb = size / 1024.0
+    val mb = kb / 1024.0
+    return when {
+        mb >= 1.0 -> String.format(Locale.US, "%.1f MB", mb)
+        kb >= 1.0 -> String.format(Locale.US, "%.0f KB", kb)
+        else -> "$size B"
+    }
 }
 
 internal fun toAttachmentUri(reference: String): Uri? {

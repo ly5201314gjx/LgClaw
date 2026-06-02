@@ -39,6 +39,15 @@ internal class ProviderResolutionStore(context: Context) {
     }
 
     @Synchronized
+    fun forget(cacheKey: String) {
+        if (cacheKey.isBlank()) return
+        val updated = readEntries().toMutableMap()
+        if (updated.remove(cacheKey) != null) {
+            writeEntries(updated)
+        }
+    }
+
+    @Synchronized
     fun clearByPrefix(prefix: String) {
         val normalizedPrefix = prefix.trim()
         if (normalizedPrefix.isBlank()) return

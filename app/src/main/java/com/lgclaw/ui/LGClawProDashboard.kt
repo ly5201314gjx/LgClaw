@@ -2,38 +2,43 @@ package com.lgclaw.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -51,184 +56,116 @@ internal fun ChatLaunchpad(
     onCreateSession: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
-    val prompts = remember(state.settingsUseChinese) {
+    val prompts = remember(state.settingsUseChinese, state.settingsCronEnabled, state.settingsHeartbeatEnabled) {
         if (state.settingsUseChinese) {
             listOf(
-                LaunchPrompt("规划今天", "把目标拆成可执行步骤", "帮我规划今天的三件关键任务，按优先级、预计耗时和下一步动作输出。"),
-                LaunchPrompt("检查配置", "Provider / 工具 / 渠道", "请帮我检查当前 LGClaw 配置是否完整，并列出需要补齐的设置。"),
-                LaunchPrompt("写自动化", "Cron 或 Heartbeat", "我想创建一个手机端自动化任务，请先问我目标、触发频率和输出渠道。"),
-                LaunchPrompt("整理记忆", "沉淀长期信息", "请根据当前会话，整理出应该写入长期记忆的事实和偏好。")
+                LaunchPrompt("安装技能", "扩展 Agent 能力", "请根据我当前要做的事情，推荐适合安装或启用的技能，并说明每个技能的用途。", Icons.Rounded.AutoFixHigh, Color(0xFF5B7CFF)),
+                LaunchPrompt("帮我查一下", "快速获取信息", "我需要快速查清一个问题。请先问我关键词、范围和输出格式。", Icons.Rounded.Search, Color(0xFF28C7AE)),
+                LaunchPrompt("新建会话", "重新开始任务", "请帮我为一个新任务梳理目标、约束、第一步动作。", Icons.Rounded.Add, Color(0xFF6A8BFF)),
+                LaunchPrompt("调整设置", "模型 / 工具 / 主题", "请帮我检查当前 LGClaw 配置是否完整，并列出需要补齐的设置。", Icons.Rounded.Tune, Color(0xFF8B6CFF))
             )
         } else {
             listOf(
-                LaunchPrompt("Plan today", "Turn goals into steps", "Help me plan my three key tasks today with priority, estimated time, and next action."),
-                LaunchPrompt("Check setup", "Provider / tools / channels", "Check whether my LGClaw setup is complete and list what still needs configuration."),
-                LaunchPrompt("Build automation", "Cron or Heartbeat", "I want to create a phone-side automation. Ask me for the goal, cadence, and output channel first."),
-                LaunchPrompt("Refine memory", "Capture durable context", "Review this session and suggest facts or preferences that should become long-term memory.")
+                LaunchPrompt("Install skills", "Extend agent ability", "Recommend skills to install or enable for my current work, and explain what each one is for.", Icons.Rounded.AutoFixHigh, Color(0xFF5B7CFF)),
+                LaunchPrompt("Look it up", "Get information fast", "I need to clarify a question quickly. Ask me for keywords, scope, and output format first.", Icons.Rounded.Search, Color(0xFF28C7AE)),
+                LaunchPrompt("New session", "Start a fresh task", "Help me shape a new task with goal, constraints, and the first useful action.", Icons.Rounded.Add, Color(0xFF6A8BFF)),
+                LaunchPrompt("Tune setup", "Model / tools / theme", "Check whether my LGClaw setup is complete and list what still needs configuration.", Icons.Rounded.Tune, Color(0xFF8B6CFF))
             )
         }
     }
 
-    Column(
+    val localTools = listOf(
+        LaunchMiniAction(tr("Read files", "读取文件"), Icons.Rounded.Description, Color(0xFF4A8CFF), "请读取我提供的文件，并总结关键内容。"),
+        LaunchMiniAction(tr("Search chat", "检索对话"), Icons.Rounded.Search, Color(0xFF6D8CFF), "请帮我从当前对话里找相关信息。"),
+        LaunchMiniAction(tr("Tool run", "工具调度"), Icons.Rounded.PlayArrow, Color(0xFF57C5A8), "请根据任务需要自动选择工具并执行。"),
+        LaunchMiniAction(tr("Config check", "配置检查"), Icons.Rounded.CheckCircle, Color(0xFF7E8BFF), "请检查模型、工具和渠道配置状态。"),
+        LaunchMiniAction(tr("Create plan", "生成计划"), Icons.Rounded.AutoFixHigh, Color(0xFF9A7BFF), "请把我的需求拆成可执行计划。")
+    )
+    val automationTools = listOf(
+        LaunchMiniAction("Cron", Icons.Rounded.Refresh, Color(0xFF7C65F5), "我想创建一个定时任务，请先问我频率、目标和输出渠道。"),
+        LaunchMiniAction("Heartbeat", Icons.Rounded.PlayArrow, Color(0xFF8C7AF7), "请帮我设计一个持续跟进的 heartbeat 任务。"),
+        LaunchMiniAction(tr("Memory", "记忆"), Icons.Rounded.Description, Color(0xFF8E84FF), "请整理当前会话中适合写入长期记忆的信息。"),
+        LaunchMiniAction("MCP", Icons.Rounded.Tune, Color(0xFF6A72E8), "请检查 MCP 配置，并告诉我可以连接哪些工具。")
+    )
+    val valueItems = listOf(
+        LaunchMiniAction(tr("Local first", "本地优先"), Icons.Rounded.CheckCircle, Color(0xFFFFC94D), "请说明当前任务哪些部分适合本地完成。"),
+        LaunchMiniAction(tr("Context", "上下文"), Icons.Rounded.Description, Color(0xFFFFC94D), "请帮我压缩并保留当前任务的关键上下文。"),
+        LaunchMiniAction(tr("Workflow", "工作流"), Icons.Rounded.AutoFixHigh, Color(0xFFFFC94D), "请把这个重复任务整理成可复用工作流。")
+    )
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 18.dp, bottom = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        LaunchHeroCard(state = state, onOpenSettings = onOpenSettings)
-        QuickStatsStrip(state = state)
-        Text(
-            text = tr("Start fast", "快速开始"),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = FontWeight.SemiBold
-        )
-        prompts.forEach { prompt ->
-            LaunchPromptRow(prompt = prompt, onClick = { onPromptSelected(prompt.prompt) })
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedButton(
-                onClick = onCreateSession,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(tr("New session", "新会话"), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            OutlinedButton(
-                onClick = onOpenSettings,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(Icons.Outlined.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(tr("Tune app", "调整设置"), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-    }
-}
-
-@Composable
-private fun LaunchHeroCard(
-    state: ChatUiState,
-    onOpenSettings: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        tonalElevation = 3.dp,
-        shadowElevation = 8.dp,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            Canvas(modifier = Modifier.matchParentSize()) {
-                val highlightCenter = Offset(size.width * 0.88f, size.height * 0.08f)
+            .padding(top = 8.dp, bottom = 18.dp)
+            .drawBehind {
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color.White.copy(alpha = 0.28f), Color.Transparent),
-                        center = highlightCenter,
+                        colors = listOf(Color(0x226AA8FF), Color.Transparent),
+                        center = Offset(size.width * 0.88f, size.height * 0.04f),
                         radius = size.width * 0.62f
                     ),
-                    radius = size.width * 0.62f,
-                    center = highlightCenter
-                )
-                drawCircle(
-                    color = Color.Black.copy(alpha = 0.08f),
-                    radius = size.width * 0.26f,
-                    center = Offset(size.width * 0.08f, size.height * 0.92f)
+                    center = Offset(size.width * 0.88f, size.height * 0.04f),
+                    radius = size.width * 0.62f
                 )
             }
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.22f),
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                ) {
-                    Text(
-                        text = tr("Mobile agent console", "移动智能体控制台"),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                Text(
-                    text = if (state.currentSessionId == AppSession.LOCAL_SESSION_ID) {
-                        tr("Ready to run local work", "本地工作已就绪")
-                    } else {
-                        tr("Working in", "当前会话") + " ${state.currentSessionTitle}"
-                    },
-                    style = MaterialTheme.typography.headlineSmall.copy(fontSize = 23.sp),
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = tr(
-                        "Chat, call tools, route messages, schedule jobs, and keep context on this phone.",
-                        "聊天、调用工具、接入渠道、安排任务，并把上下文留在这台手机上。"
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.82f),
-                    lineHeight = 20.sp
-                )
-                Button(
-                    onClick = onOpenSettings,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        contentColor = MaterialTheme.colorScheme.primary
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(tr("Open control room", "打开控制室"), fontWeight = FontWeight.SemiBold)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun QuickStatsStrip(state: ChatUiState) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        MiniStat(tr("Sessions", "会话"), state.sessions.size.toString(), Modifier.weight(1f))
-        MiniStat(tr("Channels", "渠道"), state.settingsConnectedChannels.size.toString(), Modifier.weight(1f))
-        MiniStat(tr("Tokens", "Token"), compactCount(state.settingsTokenTotal), Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun MiniStat(label: String, value: String, modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier.heightIn(min = 68.dp),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
-        tonalElevation = 1.dp
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1)
+            LaunchHeroCard(
+                state = state,
+                primary = prompts[0],
+                secondary = prompts[1],
+                onPrimary = { onPromptSelected(prompts[0].prompt) },
+                onSecondary = { onPromptSelected(prompts[1].prompt) }
+            )
+            LaunchFeatureSection(
+                icon = Icons.Rounded.Description,
+                iconColor = Color(0xFF4A8CFF),
+                title = tr("Local tool highlights", "本地工具实测亮点"),
+                items = localTools,
+                columns = 5,
+                onItemClick = { action -> onPromptSelected(action.prompt) }
+            )
+            LaunchFeatureSection(
+                icon = Icons.Rounded.PlayArrow,
+                iconColor = Color(0xFF7C65F5),
+                title = tr("Automation workspace", "自动化工作区"),
+                items = automationTools,
+                columns = 4,
+                onItemClick = { action -> onPromptSelected(action.prompt) }
+            )
+            LaunchFeatureSection(
+                icon = Icons.Rounded.CheckCircle,
+                iconColor = Color(0xFFFFC94D),
+                title = tr("Core value", "核心价值"),
+                items = valueItems,
+                columns = 3,
+                onItemClick = { action -> onPromptSelected(action.prompt) }
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                LaunchBottomPill(
+                    icon = Icons.Rounded.Add,
+                    text = tr("New session", "新建会话"),
+                    onClick = onCreateSession,
+                    modifier = Modifier.weight(1f)
+                )
+                LaunchBottomPill(
+                    icon = Icons.Outlined.Settings,
+                    text = tr("Control room", "控制室"),
+                    onClick = onOpenSettings,
+                    modifier = Modifier.weight(1f)
+                )
+            }
             Text(
-                text = label,
+                text = tr("AI can make mistakes. Check important information.", "内容由 AI 生成，请注意核实信息准确性。"),
+                modifier = Modifier.align(Alignment.CenterHorizontally),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Color(0xFF9CA3AF),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -237,42 +174,316 @@ private fun MiniStat(label: String, value: String, modifier: Modifier = Modifier
 }
 
 @Composable
-private fun LaunchPromptRow(prompt: LaunchPrompt, onClick: () -> Unit) {
+private fun LaunchBottomPill(
+    icon: ImageVector,
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
-        tonalElevation = 1.dp
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(999.dp),
+        color = Color.White,
+        contentColor = Color(0xFF232733),
+        border = BorderStroke(1.dp, Color(0xFFE8ECF4)),
+        shadowElevation = 5.dp
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 11.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF5F6E86))
+            Spacer(modifier = Modifier.width(7.dp))
+            Text(text, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun LaunchFeatureSection(
+    icon: ImageVector,
+    iconColor: Color,
+    title: String,
+    items: List<LaunchMiniAction>,
+    columns: Int,
+    onItemClick: (LaunchMiniAction) -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = Color.White.copy(alpha = 0.96f),
+        contentColor = Color(0xFF111827),
+        border = BorderStroke(1.dp, Color(0xFFEFF2F8)),
+        shadowElevation = 8.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.padding(7.dp).size(15.dp))
-            }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(prompt.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                SoftIconBubble(icon = icon, color = iconColor, size = 42.dp, iconSize = 20.dp)
                 Text(
-                    prompt.subtitle,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF111827),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFF7A8495))
             }
-            Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items.take(columns).forEach { item ->
+                    LaunchMiniActionCell(
+                        action = item,
+                        onClick = { onItemClick(item) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LaunchHeroCard(
+    state: ChatUiState,
+    primary: LaunchPrompt,
+    secondary: LaunchPrompt,
+    onPrimary: () -> Unit,
+    onSecondary: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(26.dp),
+        color = Color.White.copy(alpha = 0.96f),
+        contentColor = Color(0xFF111827),
+        border = BorderStroke(1.dp, Color(0xFFEFF3FA)),
+        shadowElevation = 10.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Box(modifier = Modifier.fillMaxWidth().heightIn(min = 210.dp)) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                drawRoundRect(
+                    brush = Brush.linearGradient(
+                        listOf(Color(0xFFFFFFFF), Color(0xFFF8FBFF), Color(0xFFFDFEFF)),
+                        start = Offset.Zero,
+                        end = Offset(size.width, size.height)
+                    ),
+                    cornerRadius = CornerRadius(26.dp.toPx(), 26.dp.toPx())
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0x335C9DFF), Color.Transparent),
+                        center = Offset(size.width * 0.83f, size.height * 0.06f),
+                        radius = size.width * 0.50f
+                    ),
+                    radius = size.width * 0.50f,
+                    center = Offset(size.width * 0.83f, size.height * 0.06f)
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(Color(0x22A58BFF), Color.Transparent),
+                        center = Offset(size.width * 0.22f, size.height * 0.88f),
+                        radius = size.width * 0.48f
+                    ),
+                    radius = size.width * 0.48f,
+                    center = Offset(size.width * 0.22f, size.height * 0.88f)
+                )
+            }
+            MiniMascot(modifier = Modifier.align(Alignment.TopEnd).padding(top = 24.dp, end = 28.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 19.dp, end = 18.dp, top = 24.dp, bottom = 17.dp),
+                verticalArrangement = Arrangement.spacedBy(15.dp)
+            ) {
+                Text(
+                    text = tr("Hello, I am LGClaw", "你好，我是 LGClaw"),
+                    style = MaterialTheme.typography.headlineSmall.copy(fontSize = 27.sp),
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF111827),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = tr("I can help you explore and build", "我可以帮助你 探索 与 创造"),
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
+                    color = Color(0xFF303846),
+                    lineHeight = 24.sp
+                )
+                Text(
+                    text = if (state.currentSessionId == AppSession.LOCAL_SESSION_ID) {
+                        tr("Local session ready", "本地会话已就绪")
+                    } else {
+                        state.currentSessionTitle.ifBlank { tr("Current session", "当前会话") }
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color(0xFF7B8495),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 210.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    LaunchHeroAction(
+                        prompt = primary,
+                        onClick = onPrimary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    LaunchHeroAction(
+                        prompt = secondary,
+                        onClick = onSecondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LaunchHeroAction(
+    prompt: LaunchPrompt,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .heightIn(min = 74.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(20.dp),
+        color = Color.White.copy(alpha = 0.82f),
+        contentColor = Color(0xFF111827),
+        border = BorderStroke(1.dp, Color(0xFFEFF3FA)),
+        shadowElevation = 6.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+            horizontalArrangement = Arrangement.spacedBy(11.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SoftIconBubble(icon = prompt.icon, color = prompt.color, size = 48.dp, iconSize = 23.dp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(prompt.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(prompt.subtitle, style = MaterialTheme.typography.labelMedium, color = Color(0xFF6B7280), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LaunchMiniActionCell(
+    action: LaunchMiniAction,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .heightIn(min = 74.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xFFFBFCFF),
+        contentColor = Color(0xFF111827),
+        border = BorderStroke(1.dp, Color(0xFFF1F3F8)),
+        shadowElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp, vertical = 9.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            SoftIconBubble(icon = action.icon, color = action.color, size = 40.dp, iconSize = 18.dp)
+            Text(
+                action.title,
+                style = MaterialTheme.typography.labelMedium,
+                color = Color(0xFF3B4250),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun SoftIconBubble(
+    icon: ImageVector,
+    color: Color,
+    size: androidx.compose.ui.unit.Dp,
+    iconSize: androidx.compose.ui.unit.Dp
+) {
+    Surface(
+        modifier = Modifier.size(size),
+        shape = RoundedCornerShape(14.dp),
+        color = color.copy(alpha = 0.14f),
+        contentColor = color,
+        border = BorderStroke(1.dp, color.copy(alpha = 0.08f)),
+        shadowElevation = 3.dp
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(Color.White.copy(alpha = 0.72f), Color.Transparent),
+                        center = Offset(18f, 10f),
+                        radius = 56f
+                    )
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(iconSize))
+        }
+    }
+}
+
+@Composable
+private fun MiniMascot(modifier: Modifier = Modifier) {
+    Box(modifier = modifier.size(114.dp), contentAlignment = Alignment.Center) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawCircle(
+                brush = Brush.radialGradient(
+                    listOf(Color(0x335C8DFF), Color.Transparent),
+                    center = Offset(size.width * 0.55f, size.height * 0.55f),
+                    radius = size.minDimension * 0.54f
+                ),
+                radius = size.minDimension * 0.54f,
+                center = Offset(size.width * 0.55f, size.height * 0.55f)
+            )
+            drawOval(
+                color = Color(0x225F8CFF),
+                topLeft = Offset(size.width * 0.10f, size.height * 0.55f),
+                size = androidx.compose.ui.geometry.Size(size.width * 0.78f, size.height * 0.22f)
+            )
+        }
+        Surface(
+            modifier = Modifier.size(70.dp),
+            shape = RoundedCornerShape(30.dp),
+            color = Color(0xFF0F172A),
+            contentColor = Color(0xFF69A7FF),
+            shadowElevation = 8.dp
+        ) {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(modifier = Modifier.size(width = 10.dp, height = 24.dp), shape = RoundedCornerShape(999.dp), color = Color(0xFF5DA7FF)) {}
+                Spacer(Modifier.width(12.dp))
+                Surface(modifier = Modifier.size(width = 10.dp, height = 24.dp), shape = RoundedCornerShape(999.dp), color = Color(0xFF6F7CFF)) {}
+            }
         }
     }
 }
@@ -416,6 +627,15 @@ private fun DashboardStatusRow(
 private data class LaunchPrompt(
     val title: String,
     val subtitle: String,
+    val prompt: String,
+    val icon: ImageVector,
+    val color: Color
+)
+
+private data class LaunchMiniAction(
+    val title: String,
+    val icon: ImageVector,
+    val color: Color,
     val prompt: String
 )
 

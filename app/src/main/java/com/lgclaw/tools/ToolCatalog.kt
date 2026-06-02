@@ -21,11 +21,12 @@ fun createToolRegistry(
     novelRepository: NovelRepository? = null,
     currentSessionIdProvider: () -> String = { "local" },
     terminalController: TerminalController? = null,
+    messageRepository: com.lgclaw.storage.MessageRepository? = null,
     onSetCronEnabled: (suspend (Boolean) -> Unit)? = null,
     onUpdateCronConfig: (suspend (CronConfigUpdate) -> CronConfig)? = null,
     defaultTimeoutMsProvider: () -> Long = { 60_000L }
 ): ToolRegistry {
-    val tools = buildCoreTools(context, memoryStore, agentRepository, novelRepository, currentSessionIdProvider, terminalController)
+    val tools = buildCoreTools(context, memoryStore, agentRepository, novelRepository, currentSessionIdProvider, terminalController, messageRepository)
     if (cronService != null) {
         tools += createCronToolSet(cronService, onSetCronEnabled, onUpdateCronConfig)
     }
@@ -41,7 +42,8 @@ private fun buildCoreTools(
     agentRepository: AgentRepository?,
     novelRepository: NovelRepository?,
     currentSessionIdProvider: () -> String,
-    terminalController: TerminalController?
+    terminalController: TerminalController?,
+    messageRepository: com.lgclaw.storage.MessageRepository?
 ): MutableList<Tool> {
     val skillStore = SkillStore(context)
     val dynamicToolStore = DynamicToolStore(context)
@@ -67,7 +69,7 @@ private fun buildCoreTools(
         addAll(createDynamicToolManagementSet(dynamicToolStore))
         addAll(createDynamicPromptTools(dynamicToolStore))
         addAll(createFileToolSet(context, AppStoragePaths.storageRoot(context)))
-        addAll(createAttachmentToolSet(context))
+        addAll(createAttachmentToolSet(context, currentSessionIdProvider, messageRepository))
         addAll(createMemoryToolSet(memoryStore, currentSessionIdProvider))
         if (terminalController != null) addAll(createTerminalToolSet(terminalController, currentSessionIdProvider))
     }

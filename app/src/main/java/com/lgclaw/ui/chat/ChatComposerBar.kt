@@ -52,6 +52,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -73,6 +74,12 @@ internal fun ChatComposerBar(
     onRequestTerminalOverlayPermission: () -> Unit,
     onRemoveAttachment: (String) -> Unit
 ) {
+    val baseTextSp = state.themeMessageFontSizeSp.coerceIn(12f, 20f)
+    val lineMultiplier = state.themeMessageLineHeightMultiplier.coerceIn(1f, 1.7f)
+    val bodyTextSize = baseTextSp.sp
+    val bodyLineHeight = (baseTextSp * lineMultiplier).sp
+    val compactTextSize = (baseTextSp - 2f).coerceIn(10f, 16f).sp
+    val tinyTextSize = (baseTextSp - 3f).coerceIn(9f, 14f).sp
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -80,12 +87,15 @@ internal fun ChatComposerBar(
     ) {
         PlanModeStrip(
             state = state,
+            compactTextSize = compactTextSize,
+            tinyTextSize = tinyTextSize,
             onPlanModeChange = onPlanModeChange
         )
 
         if (state.input.contains("@")) {
             CommandSuggestionStrip(
                 state = state,
+                compactTextSize = compactTextSize,
                 onPick = { command ->
                     val base = state.input.substringBeforeLast("@", state.input)
                     onInputChanged(base + "@" + command + " ")
@@ -94,6 +104,8 @@ internal fun ChatComposerBar(
         }
         PendingAttachmentStrip(
             attachments = state.pendingAttachments,
+            compactTextSize = compactTextSize,
+            tinyTextSize = tinyTextSize,
             onRemove = onRemoveAttachment
         )
 
@@ -112,44 +124,44 @@ internal fun ChatComposerBar(
                 contentColor = Color(0xFF1F2430),
                 tonalElevation = 0.dp,
                 shadowElevation = 10.dp,
-                shape = RoundedCornerShape(26.dp),
-                border = BorderStroke(1.dp, Color(0xFFE6EAF1))
+                shape = RoundedCornerShape(28.dp),
+                border = BorderStroke(1.2.dp, Color(0xFF8DB6F7).copy(alpha = 0.72f))
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 48.dp)
+                        .heightIn(min = 62.dp)
                         .drawBehind {
                             drawRoundRect(
                                 brush = Brush.linearGradient(
-                                    colors = listOf(Color(0xFFFFFFFF), Color(0xFFF7F9FC)),
+                                    colors = listOf(Color(0xFFFFFFFF), Color(0xFFFAFBFF), Color(0xFFF7F9FF)),
                                     start = Offset.Zero,
                                     end = Offset(size.width, size.height)
                                 ),
-                                cornerRadius = CornerRadius(26.dp.toPx(), 26.dp.toPx())
+                                cornerRadius = CornerRadius(28.dp.toPx(), 28.dp.toPx())
                             )
                             drawCircle(
                                 brush = Brush.radialGradient(
-                                    colors = listOf(Color(0x1A6FA8FF), Color.Transparent),
-                                    center = Offset(size.width * 0.08f, size.height * 0.1f),
-                                    radius = size.maxDimension * 0.42f
+                                    colors = listOf(Color(0x226FA8FF), Color.Transparent),
+                                    center = Offset(size.width * 0.88f, size.height * 0.85f),
+                                    radius = size.maxDimension * 0.36f
                                 )
                             )
                         }
-                        .padding(start = 7.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
+                        .padding(start = 9.dp, end = 7.dp, top = 7.dp, bottom = 7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     ComposerToolKey(
-                        icon = Icons.Rounded.Image,
-                        contentDescription = "上传图片",
-                        accent = Color(0xFF3977F6),
-                        onClick = onPickImages
-                    )
-                    ComposerToolKey(
                         icon = Icons.Rounded.AttachFile,
                         contentDescription = "上传文件",
-                        accent = Color(0xFF4B5565),
+                        accent = Color(0xFF111827),
                         onClick = onPickAttachments
+                    )
+                    ComposerToolKey(
+                        icon = Icons.Rounded.Image,
+                        contentDescription = "上传图片",
+                        accent = Color(0xFF4D6FD8),
+                        onClick = onPickImages
                     )
                     Box(
                         modifier = Modifier
@@ -159,9 +171,9 @@ internal fun ChatComposerBar(
                     ) {
                         if (state.input.isBlank()) {
                             Text(
-                                text = "输入消息，Agent 会按需静默调度终端、技能和工具",
-                                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
-                                color = Color(0xFF8A93A3),
+                                text = "输入消息，Agent 会按需调用终端、技能和工具",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontSize = bodyTextSize, lineHeight = bodyLineHeight),
+                                color = Color(0xFFA3AAB8),
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -178,8 +190,8 @@ internal fun ChatComposerBar(
                                 }
                             ),
                             textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                fontSize = 14.sp,
-                                lineHeight = 18.sp,
+                                fontSize = bodyTextSize,
+                                lineHeight = bodyLineHeight,
                                 color = Color(0xFF1F2430)
                             ),
                             cursorBrush = SolidColor(Color(0xFF3977F6)),
@@ -192,35 +204,49 @@ internal fun ChatComposerBar(
                         color = if (isStopState) {
                             Color(0xFFFFE8E5)
                         } else if (canSend) {
-                            Color(0xFF111827)
+                            Color(0xFF5F7CFF)
                         } else {
-                            Color(0xFFEDEFF4)
+                            Color(0xFFF1F3F8)
                         },
                         shape = CircleShape,
                         tonalElevation = 0.dp,
-                        shadowElevation = if (canSend || isStopState) 8.dp else 0.dp
+                        shadowElevation = if (canSend || isStopState) 10.dp else 2.dp
                     ) {
-                        IconButton(
-                            onClick = { if (state.isGenerating) onStopGeneration() else onSendMessage() },
-                            enabled = state.isGenerating || state.input.isNotBlank() || state.pendingAttachments.isNotEmpty(),
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            if (isStopState) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(12.dp)
-                                        .background(
-                                            color = Color(0xFFCC3528),
-                                            shape = RoundedCornerShape(3.dp)
+                        Box(
+                            modifier = Modifier.drawBehind {
+                                if (canSend && !isStopState) {
+                                    drawCircle(
+                                        brush = Brush.radialGradient(
+                                            listOf(Color(0xFF74B8FF), Color(0xFF6D62FF)),
+                                            center = Offset(size.width * 0.30f, size.height * 0.25f),
+                                            radius = size.maxDimension * 0.78f
                                         )
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Rounded.KeyboardArrowUp,
-                                    contentDescription = "发送给 Agent",
-                                    tint = if (canSend) Color.White else Color(0xFF9AA3B2),
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                    )
+                                }
+                            }
+                        ) {
+                            IconButton(
+                                onClick = { if (state.isGenerating) onStopGeneration() else onSendMessage() },
+                                enabled = state.isGenerating || state.input.isNotBlank() || state.pendingAttachments.isNotEmpty(),
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                if (isStopState) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .background(
+                                                color = Color(0xFFCC3528),
+                                                shape = RoundedCornerShape(3.dp)
+                                            )
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Rounded.KeyboardArrowUp,
+                                        contentDescription = "发送给 Agent",
+                                        tint = if (canSend) Color.White else Color(0xFF9AA3B2),
+                                        modifier = Modifier.size(21.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -238,20 +264,21 @@ private fun ComposerToolKey(
     onClick: () -> Unit
 ) {
     Surface(
-        modifier = Modifier.size(31.dp),
-        shape = RoundedCornerShape(12.dp),
-        color = Color(0xFFF5F7FA),
+        modifier = Modifier.size(36.dp),
+        shape = CircleShape,
+        color = Color.White.copy(alpha = 0.82f),
         contentColor = accent,
-        border = BorderStroke(1.dp, Color(0xFFE7EAF1))
+        border = BorderStroke(1.dp, Color(0xFFE9EDF5)),
+        shadowElevation = 2.dp
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 31.dp)
+                .heightIn(min = 36.dp)
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, contentDescription = contentDescription, tint = accent, modifier = Modifier.size(17.dp))
+            Icon(icon, contentDescription = contentDescription, tint = accent, modifier = Modifier.size(19.dp))
         }
     }
 }
@@ -259,6 +286,8 @@ private fun ComposerToolKey(
 @Composable
 private fun PendingAttachmentStrip(
     attachments: List<UiPendingAttachment>,
+    compactTextSize: TextUnit,
+    tinyTextSize: TextUnit,
     onRemove: (String) -> Unit
 ) {
     if (attachments.isEmpty()) return
@@ -301,7 +330,7 @@ private fun PendingAttachmentStrip(
                     Column(modifier = Modifier.widthIn(max = 120.dp)) {
                         Text(
                             text = attachment.fileLabel(),
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelMedium.copy(fontSize = compactTextSize),
                             color = Color(0xFF20242D),
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -309,7 +338,7 @@ private fun PendingAttachmentStrip(
                         )
                         Text(
                             text = "${attachment.id} · ${attachment.mimeType.substringAfterLast('/').uppercase(java.util.Locale.US)}",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = tinyTextSize),
                             color = Color(0xFF7B8494),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -329,7 +358,12 @@ private fun UiPendingAttachment.fileLabel(): String {
 }
 
 @Composable
-private fun PlanModeStrip(state: ChatUiState, onPlanModeChange: (UiPlanModeLevel) -> Unit) {
+private fun PlanModeStrip(
+    state: ChatUiState,
+    compactTextSize: TextUnit,
+    tinyTextSize: TextUnit,
+    onPlanModeChange: (UiPlanModeLevel) -> Unit
+) {
     var expanded by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
@@ -346,7 +380,7 @@ private fun PlanModeStrip(state: ChatUiState, onPlanModeChange: (UiPlanModeLevel
             ) {
                 Text(
                     text = if (state.planModeLevel == UiPlanModeLevel.Off) "计划：关闭" else "计划：${state.planModeLevel.label}",
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelMedium.copy(fontSize = compactTextSize),
                     color = if (state.planModeLevel == UiPlanModeLevel.Off) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     maxLines = 1,
@@ -355,18 +389,25 @@ private fun PlanModeStrip(state: ChatUiState, onPlanModeChange: (UiPlanModeLevel
             }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 UiPlanModeLevel.values().forEach { mode ->
-                    DropdownMenuItem(text = { Text(mode.label) }, onClick = { expanded = false; onPlanModeChange(mode) })
+                    DropdownMenuItem(
+                        text = { Text(mode.label, style = MaterialTheme.typography.labelMedium.copy(fontSize = compactTextSize)) },
+                        onClick = { expanded = false; onPlanModeChange(mode) }
+                    )
                 }
             }
         }
         if (state.isPlanning) {
-            Text("生成计划中...", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 1)
+            Text("生成计划中...", style = MaterialTheme.typography.labelMedium.copy(fontSize = tinyTextSize), color = MaterialTheme.colorScheme.primary, maxLines = 1)
         }
     }
 }
 
 @Composable
-private fun CommandSuggestionStrip(state: ChatUiState, onPick: (String) -> Unit) {
+private fun CommandSuggestionStrip(
+    state: ChatUiState,
+    compactTextSize: TextUnit,
+    onPick: (String) -> Unit
+) {
     val commands = (state.skills.filter { it.enabled }.map { it.name } + state.dynamicTools.filter { it.enabled }.map { it.name })
         .distinct()
         .take(16)
@@ -388,7 +429,7 @@ private fun CommandSuggestionStrip(state: ChatUiState, onPick: (String) -> Unit)
             ) {
                 Text(
                     text = "@$command",
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelMedium.copy(fontSize = compactTextSize),
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
                     maxLines = 1,

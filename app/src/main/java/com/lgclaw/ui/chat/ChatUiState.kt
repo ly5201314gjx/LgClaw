@@ -85,7 +85,10 @@ data class UiInlineTrace(
     val sessionId: String,
     val title: String,
     val detail: String,
-    val createdAt: Long
+    val createdAt: Long,
+    val sourceType: String = "状态",
+    val sourceName: String = "状态",
+    val rawPreview: String = ""
 )
 
 data class UiNovelProject(
@@ -156,7 +159,8 @@ enum class UiPlanModeLevel(val label: String) {
 enum class UiBubbleStyle(val key: String, val label: String) {
     Native("native", "原生气泡"),
     Frosted("frosted", "毛玻璃"),
-    Water("water", "水玻璃");
+    Water("water", "水玻璃"),
+    None("none", "无气泡");
 
     companion object {
         fun fromKey(key: String): UiBubbleStyle =
@@ -231,6 +235,10 @@ data class ChatUiState(
     val input: String = "",
     val pendingAttachments: List<UiPendingAttachment> = emptyList(),
     val isGenerating: Boolean = false,
+    val activeTraceAnchorMessageId: Long? = null,
+    val traceRunning: Boolean = false,
+    val traceSessionId: String = "",
+    val traceCompletedAt: Long = 0L,
     val onboardingCompleted: Boolean = false,
     val userDisplayName: String = "",
     val agentDisplayName: String = "LGClaw",

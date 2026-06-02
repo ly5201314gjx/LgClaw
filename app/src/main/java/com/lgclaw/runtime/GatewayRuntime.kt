@@ -56,6 +56,7 @@ import com.lgclaw.storage.SessionRepository
 import com.lgclaw.storage.entities.SessionEntity
 import com.lgclaw.templates.TemplateStore
 import com.lgclaw.terminal.TerminalController
+import com.lgclaw.trace.TraceNoteExtractor
 import com.lgclaw.tools.ChannelsGetTool
 import com.lgclaw.tools.ChannelsSetTool
 import com.lgclaw.tools.CronConfigUpdate
@@ -144,6 +145,7 @@ class GatewayRuntime(
                 ?: ambientSessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID }
         },
         terminalController = terminalController,
+        messageRepository = messageRepository,
         onSetCronEnabled = { enabled -> setCronEnabledFromTool(enabled) },
         onUpdateCronConfig = { update -> persistCronSettings(update) },
         defaultTimeoutMsProvider = {
@@ -1694,11 +1696,13 @@ class GatewayRuntime(
     }
 
     private fun recordInlineTrace(sessionId: String, title: String, detail: String) {
+        val cleanTitle = TraceNoteExtractor.cleanTraceText(title, 80).ifBlank { "状态" }
+        val cleanDetail = TraceNoteExtractor.displayDetail(title, detail)
         synchronized(gatewayInlineTraces) {
             gatewayInlineTraces += RuntimeTrace(
                 sessionId = sessionId.trim(),
-                title = title.trim().ifBlank { "状态" },
-                detail = detail.trim(),
+                title = cleanTitle,
+                detail = cleanDetail,
                 createdAt = System.currentTimeMillis()
             )
             while (gatewayInlineTraces.size > 48) {

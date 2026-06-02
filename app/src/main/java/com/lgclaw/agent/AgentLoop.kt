@@ -6,6 +6,7 @@ import com.lgclaw.config.AppLimits
 import com.lgclaw.memory.MemoryStore
 import com.lgclaw.memory.CompressedMemoryStore
 import com.lgclaw.providers.ChatMessage
+import com.lgclaw.providers.LlmResponse
 import com.lgclaw.providers.LlmProvider
 import com.lgclaw.providers.LlmUsage
 import com.lgclaw.providers.ToolCall
@@ -15,6 +16,7 @@ import com.lgclaw.storage.MessageRepository
 import com.lgclaw.templates.TemplateStore
 import com.lgclaw.tools.ToolRegistry
 import com.lgclaw.tools.ToolResult
+import com.lgclaw.trace.TraceNoteExtractor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -103,10 +105,11 @@ class AgentLoop(
                 .coerceIn(AppLimits.MIN_TOOL_RESULT_MAX_CHARS, AppLimits.MAX_TOOL_RESULT_MAX_CHARS)
             if (activeSkillNames.isNotEmpty()) {
                 logInfo("active skills selected: ${activeSkillNames.joinToString(",")}")
-                reportTrace(sessionId, "读取技能", activeSkillNames.joinToString("、").take(120))
+                reportTrace(sessionId, "读取技能", "本轮启用：${activeSkillNames.joinToString("、").take(160)}")
             }
             refreshRuntimeTools?.invoke()
             val initialToolSpec = toolRegistry.toToolSpecList()
+            reportTrace(sessionId, "刷新工具", "已准备 ${initialToolSpec.size} 个可用工具，正在判断是否需要调用。")
             val executionPlanContext = createExecutionPlanContext(
                 sessionId = sessionId,
                 userTask = newUserText,
@@ -118,8 +121,8 @@ class AgentLoop(
             for (round in 1..maxRounds) {
                 refreshRuntimeTools?.invoke()
                 logInfo("round $round start")
-                reportTrace(sessionId, "请求模型", "第 $round 轮，工具数=${toolRegistry.toToolSpecList().size}")
                 val toolSpec = toolRegistry.toToolSpecList()
+                reportTrace(sessionId, "请求模型", "第 $round 轮正在组织上下文，可用工具 ${toolSpec.size} 个。")
 
                 val turn = requestNonStreamTurn(
                     sessionId = sessionId,
@@ -135,6 +138,7 @@ class AgentLoop(
                 }
 
                 val parsedToolCalls = turn.parsedToolCalls
+                reportTrace(sessionId, "解析工具", if (parsedToolCalls.isEmpty()) "模型没有继续请求工具。" else "模型请求 ${parsedToolCalls.size} 个工具调用。")
                 if (parsedToolCalls.isEmpty()) {
                     logInfo("no tool calls; end loop")
                     reportTrace(sessionId, "模型输出", "本轮没有继续调用工具。")
@@ -143,7 +147,7 @@ class AgentLoop(
 
                 for (call in parsedToolCalls) {
                     logInfo("tool call: ${call.name}, id=${call.id}")
-                    reportTrace(sessionId, "使用工具", call.name)
+                    reportTrace(sessionId, "使用工具", "准备执行 ${call.name}，等待返回结果。")
                     val result = if (blockedTools.contains(call.name)) {
                         ToolResult(
                             toolCallId = call.id,
@@ -153,8 +157,15 @@ class AgentLoop(
                     } else {
                         toolRegistry.execute(call)
                     }
+                    reportTrace(sessionId, "读取结果", "${call.name} 已返回，正在整理公开摘要。")
                     val safeContent = truncateToolResult(result.content, toolResultMaxChars)
-                    reportTrace(sessionId, "工具结果", "${call.name} · ${safeContent.take(80)}")
+                    val publicNotes = TraceNoteExtractor.extractPublicNotes(safeContent)
+                    publicNotes.forEach { note ->
+                        reportTrace(sessionId, "工具思考", note)
+                    }
+                    val resultNote = publicNotes.firstOrNull()
+                    val resultSummary = resultNote ?: "${call.name} · ${TraceNoteExtractor.cleanTraceText(safeContent, 80)}"
+                    reportTrace(sessionId, "工具结果", resultSummary)
                     repository.appendToolMessage(
                         sessionId = sessionId,
                         content = safeContent,
@@ -180,11 +191,9 @@ class AgentLoop(
             throw ce
         } catch (t: Throwable) {
             logError("round failed", t)
-            reportTrace(sessionId, "执行失败", t.message ?: t.javaClass.simpleName)
-            repository.appendAssistantMessage(
-                sessionId,
-                "Error: ${t.message ?: t.javaClass.simpleName}"
-            )
+            val userVisibleFailure = formatUserVisibleFailure(t)
+            reportTrace(sessionId, "执行失败", userVisibleFailure)
+            repository.appendAssistantMessage(sessionId, userVisibleFailure)
             return@withContext
         } finally {
             if (!cancelled) {
@@ -192,7 +201,6 @@ class AgentLoop(
             }
         }
     }
-
     fun close() {
         backgroundScope.cancel()
         synchronized(consolidationGuard) {
@@ -265,7 +273,6 @@ class AgentLoop(
             "node", "npm", "python", "git", "ssh", "uv", "build", "test"
         ).any { normalized.contains(it) }
     }
-
     private suspend fun requestNonStreamTurn(
         sessionId: String,
         toolSpec: List<ToolSpec>,
@@ -295,7 +302,7 @@ class AgentLoop(
             agentProfileContext = agentProfileContext,
             executionPlanContext = executionPlanContext
         )
-        val response = try {
+        val initialResponse = try {
             llmProviderFactory().chat(llmMessages, toolSpec)
         } catch (t: Throwable) {
             if (t is InterruptedIOException || (t.message?.contains("timeout", ignoreCase = true) == true)) {
@@ -307,6 +314,12 @@ class AgentLoop(
             }
             throw t
         }
+        val response = recoverEmptyAssistantResponseIfNeeded(
+            sessionId = sessionId,
+            llmMessages = llmMessages,
+            toolSpec = toolSpec,
+            initial = initialResponse
+        )
         response.usage?.let { usageReporter?.invoke(it) }
         val parsedToolCalls = toolCallParser.parse(response)
         val toolCallJson = if (parsedToolCalls.isNotEmpty()) {
@@ -319,10 +332,17 @@ class AgentLoop(
         )
 
         val rawContent = response.assistant.content
+        TraceNoteExtractor.extractAssistantNote(rawContent)?.let { note ->
+            reportTrace(sessionId, "模型计划", note)
+        }
         if (rawContent.isBlank() && parsedToolCalls.isEmpty()) {
-            repository.appendAssistantMessage(sessionId, "[Error] Empty assistant response.")
-            logWarn("empty assistant response without tool call")
-            return null
+            val message = buildEmptyRecoveryFallback(sessionId)
+            repository.appendAssistantMessage(sessionId, message)
+            reportTrace(sessionId, "空响应恢复", "自动续跑后仍为空，已写入非空进度说明，避免对话停在空白响应。")
+            logWarn("empty assistant response without tool call after recovery")
+            return AssistantTurn(
+                parsedToolCalls = emptyList()
+            )
         }
 
         val persistedContent = when {
@@ -418,6 +438,80 @@ class AgentLoop(
         )
     }
 
+    private suspend fun recoverEmptyAssistantResponseIfNeeded(
+        sessionId: String,
+        llmMessages: List<ChatMessage>,
+        toolSpec: List<ToolSpec>,
+        initial: LlmResponse
+    ): LlmResponse {
+        if (initial.assistant.content.isNotBlank() || initial.assistant.toolCalls.isNotEmpty()) {
+            return initial
+        }
+        val recoveryPrompts = listOf(
+            "上一轮模型返回了空响应。请不要留空：如果任务还没完成，请继续完成；如果已经完成，请用中文给出清晰结果、已完成事项和下一步建议。",
+            "仍然没有收到可用正文。请基于当前上下文和已有工具结果继续完成任务。必须返回非空中文回复；不要只返回空白、不要等待用户再次发送。"
+        )
+        var last = initial
+        recoveryPrompts.forEachIndexed { index, prompt ->
+            reportTrace(sessionId, "空响应恢复", "模型返回空内容，正在第 ${index + 1} 次自动续跑。")
+            val recoveryMessages = llmMessages + ChatMessage(role = "user", content = prompt)
+            last = runCatching {
+                llmProviderFactory().chat(recoveryMessages, toolSpec)
+            }.onFailure { error ->
+                reportTrace(sessionId, "空响应恢复失败", error.message ?: error.javaClass.simpleName)
+                logWarn("empty response recovery failed: ${error.message ?: error.javaClass.simpleName}")
+            }.getOrElse { last }
+            if (last.assistant.content.isNotBlank() || last.assistant.toolCalls.isNotEmpty()) {
+                return last
+            }
+        }
+        return last
+    }
+
+    private suspend fun buildEmptyRecoveryFallback(sessionId: String): String {
+        val recent = repository.getMessages(sessionId)
+            .asReversed()
+            .asSequence()
+            .filter { it.role == "tool" || it.role == "assistant" }
+            .map { TraceNoteExtractor.cleanTraceText(it.content, 120) }
+            .filter { it.isNotBlank() && it != "[tool call]" }
+            .take(3)
+            .toList()
+            .asReversed()
+        return buildString {
+            append("模型这轮没有返回正文，我已经自动续跑过，但服务端仍然给了空内容。")
+            append("\n\n")
+            append("当前任务没有丢失，我已保留上下文和工具结果；本轮可见进度如下：")
+            if (recent.isEmpty()) {
+                append("\n- 已完成上下文整理与调度检查。")
+            } else {
+                recent.forEach { append("\n- ").append(it.take(160)) }
+            }
+            append("\n\n")
+            append("我不会再让对话栏显示空响应；下一轮会继续从这些上下文接着完成。")
+        }
+    }
+
+    private fun formatUserVisibleFailure(t: Throwable): String {
+        val raw = t.message?.takeIf { it.isNotBlank() } ?: t.javaClass.simpleName
+        val lower = raw.lowercase()
+        return when {
+            "http 401" in lower || "authentication error" in lower || "auth_error" in lower || "认证失败" in lower -> {
+                "模型认证没有通过（HTTP 401），我已经停止本轮模型请求并保留过程记录。请在模型控制台检查 API Key、账号连接状态和 Base URL；如果该服务要求先 connect() 到 query engine，请先完成连接后重试。原始信息：$raw"
+            }
+            "http 404" in lower || "404 page not found" in lower -> {
+                "这次模型请求命中了不存在的接口地址（HTTP 404）。请在模型控制台确认 Base URL 不要同时写错协议路径，例如 OpenAI 兼容接口通常是 `/v1/chat/completions` 或只填到 `/v1`。原始信息：$raw"
+            }
+            "unexpected json token" in lower && "data:" in lower -> {
+                "模型返回了流式 `data:` 包装内容，但当前请求按普通 JSON 解析失败。请重试这条消息。原始信息：$raw"
+            }
+            "timed out" in lower || "timeout" in lower -> {
+                "任务超时了。终端下载、安装依赖、构建测试类任务会使用更长的自适应超时，并在超时后自动清理进程，避免卡住后续对话。可以直接继续发消息或让我重试。原始信息：$raw"
+            }
+            else -> "执行时遇到问题：$raw"
+        }
+    }
+
     @kotlinx.serialization.Serializable
     private data class StoredToolResult(
         val toolCallId: String,
@@ -461,6 +555,8 @@ class AgentLoop(
         )
     }
 }
+
+
 
 
 

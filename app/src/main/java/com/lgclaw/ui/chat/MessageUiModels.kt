@@ -10,7 +10,10 @@ data class UiMessage(
     val createdAt: Long,
     val isCollapsible: Boolean = false,
     val expandedContent: String? = null,
-    val attachments: List<UiMediaAttachment> = emptyList()
+    val attachments: List<UiMediaAttachment> = emptyList(),
+    val traceItems: List<UiInlineTrace> = emptyList(),
+    val traceRunning: Boolean = false,
+    val traceAnchorMessageId: Long? = null
 )
 
 data class UiMediaAttachment(
@@ -18,7 +21,10 @@ data class UiMediaAttachment(
     val kind: UiMediaKind,
     val label: String,
     val mimeType: String = "",
-    val fileId: String = ""
+    val fileId: String = "",
+    val sizeBytes: Long = 0L,
+    val previewText: String = "",
+    val contentUri: String = ""
 )
 
 enum class UiMediaKind {

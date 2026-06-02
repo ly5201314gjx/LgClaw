@@ -22,8 +22,21 @@ internal class ProviderHttpException(
     val isRetryableCandidateFailure: Boolean
         get() = statusCode in RETRYABLE_STATUS_CODES
 
+    val isAuthenticationRecoveryFailure: Boolean
+        get() {
+            if (statusCode != 401) return false
+            val detail = responseBody.lowercase(Locale.US)
+            return detail.contains("authentication") ||
+                detail.contains("auth_error") ||
+                detail.contains("api key") ||
+                detail.contains("connected to the query engine") ||
+                detail.contains("connect()") ||
+                detail.contains("unauthorized") ||
+                detail.contains("认证")
+        }
+
     companion object {
-        private val RETRYABLE_STATUS_CODES = setOf(400, 404, 405, 415, 422)
+        private val RETRYABLE_STATUS_CODES = setOf(400, 401, 404, 405, 415, 422)
 
         private fun buildMessage(
             providerLabel: String,

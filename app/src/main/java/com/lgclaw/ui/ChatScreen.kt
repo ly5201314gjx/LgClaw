@@ -5,6 +5,7 @@ import android.app.Activity
 import android.app.AlarmManager
 import android.app.DownloadManager
 import android.bluetooth.BluetoothAdapter
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.media.MediaPlayer
@@ -12,6 +13,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.PowerManager
+import android.provider.MediaStore
 import android.provider.Settings
 import android.text.method.LinkMovementMethod
 import android.graphics.Typeface
@@ -111,8 +113,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -161,7 +161,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -208,6 +207,7 @@ import com.lgclaw.attachments.AttachmentBridge
 import com.lgclaw.config.AppLimits
 import com.lgclaw.config.AppSession
 import com.lgclaw.providers.ProviderCatalog
+import com.lgclaw.trace.TraceNoteExtractor
 import com.lgclaw.tools.AndroidUserActionBridge
 import com.lgclaw.tools.AndroidUserActionRequester
 import com.lgclaw.tools.hasAllFilesAccess
@@ -348,6 +348,7 @@ fun ChatScreen(vm: ChatViewModel) {
     var showHeartbeatEditor by rememberSaveable { mutableStateOf(false) }
     var roleCardMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var showQuickRoleCardDialog by rememberSaveable { mutableStateOf(false) }
+    var previewImageAttachment by remember { mutableStateOf<UiMediaAttachment?>(null) }
     var quickRoleName by rememberSaveable { mutableStateOf("") }
     var quickRolePersona by rememberSaveable { mutableStateOf("") }
     var messageActionTargetId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -412,6 +413,9 @@ fun ChatScreen(vm: ChatViewModel) {
     var pendingHistoryRestore by remember { mutableStateOf<HistoryRestoreRequest?>(null) }
     val expandedToolMessages = remember { mutableStateMapOf<Long, Boolean>() }
     var selectedToolGroupStartId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var selectedToolMessageId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var traceCollapsed by rememberSaveable { mutableStateOf(false) }
+    var selectedTraceId by rememberSaveable { mutableStateOf<String?>(null) }
     var previewAudioPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var previewAudioRef by rememberSaveable { mutableStateOf<String?>(null) }
     var previewAudioDurationMs by rememberSaveable { mutableStateOf(0) }
@@ -888,7 +892,7 @@ fun ChatScreen(vm: ChatViewModel) {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .verticalScroll(sessionSettingsScrollState),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
                             Text(
                                 text = item.title,
@@ -2223,8 +2227,8 @@ fun ChatScreen(vm: ChatViewModel) {
     val toolGroupsByStartId = remember(visibleMessages) {
         buildToolMessageGroups(visibleMessages).associateBy { it.startId }
     }
-    val latestAssistantMessageId = remember(visibleMessages) {
-        visibleMessages.lastOrNull { it.role == "assistant" }?.id
+    val compactVisibleMessages = remember(visibleMessages, toolGroupsByStartId) {
+        visibleMessages.filter { message -> message.role != "tool" || toolGroupsByStartId.containsKey(message.id) }
     }
     val assistantAvatarInfo = if (state.activeRoleCardId.isNotBlank()) {
         state.currentRoleCardAvatar
@@ -2347,10 +2351,23 @@ fun ChatScreen(vm: ChatViewModel) {
     var nearTailBeforeImeOpen by rememberSaveable { mutableStateOf(true) }
     val showScrollToLatestButton = totalItems > 0 && !isNearTail
     val attachmentBridge = remember(context) { AttachmentBridge(context.applicationContext) }
-    val openAttachment: (UiMediaAttachment) -> Unit = { attachment ->
+    fun shareAttachment(attachment: UiMediaAttachment) {
         val uri = runCatching {
             attachment.fileId.takeIf { it.isNotBlank() }?.let { attachmentBridge.getShareUri(it) }
-        }.getOrNull() ?: toAttachmentUri(attachment.reference)
+        }.getOrNull() ?: toAttachmentUri(attachment.contentUri.ifBlank { attachment.reference })
+        uri?.let {
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = attachment.mimeType.takeIf { value -> value.isNotBlank() } ?: mediaMimeTypeForKind(attachment.kind)
+                putExtra(Intent.EXTRA_STREAM, it)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            runCatching { context.startActivity(Intent.createChooser(intent, "分享附件")) }
+        }
+    }
+    fun openAttachmentWithSystem(attachment: UiMediaAttachment) {
+        val uri = runCatching {
+            attachment.fileId.takeIf { it.isNotBlank() }?.let { attachmentBridge.getShareUri(it) }
+        }.getOrNull() ?: toAttachmentUri(attachment.contentUri.ifBlank { attachment.reference })
         uri?.let {
             val mime = mediaMimeTypeForKind(attachment.kind)
             val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -2358,6 +2375,54 @@ fun ChatScreen(vm: ChatViewModel) {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             runCatching { context.startActivity(Intent.createChooser(intent, "打开附件")) }
+        }
+    }
+    fun saveImageAttachment(attachment: UiMediaAttachment) {
+        val source = runCatching {
+            attachment.fileId.takeIf { it.isNotBlank() }?.let { attachmentBridge.getShareUri(it) }
+        }.getOrNull() ?: toAttachmentUri(attachment.contentUri.ifBlank { attachment.reference })
+        if (source == null) {
+            Toast.makeText(context, "找不到图片文件", Toast.LENGTH_SHORT).show()
+            return
+        }
+        runCatching {
+            val fileName = attachment.label.ifBlank { "LGClaw_${System.currentTimeMillis()}.jpg" }
+            val resolver = context.contentResolver
+            val targetUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                    put(MediaStore.Images.Media.MIME_TYPE, attachment.mimeType.ifBlank { "image/jpeg" })
+                    put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/LGClaw")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
+                resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)?.also { uri ->
+                    resolver.openInputStream(source)?.use { input ->
+                        resolver.openOutputStream(uri)?.use { output -> input.copyTo(output) }
+                    }
+                    values.clear()
+                    values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                    resolver.update(uri, values, null, null)
+                }
+            } else {
+                val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "LGClaw").apply { mkdirs() }
+                val out = File(dir, fileName)
+                resolver.openInputStream(source)?.use { input ->
+                    out.outputStream().use { output -> input.copyTo(output) }
+                }
+                Uri.fromFile(out)
+            }
+            requireNotNull(targetUri) { "save_failed" }
+        }.onSuccess {
+            Toast.makeText(context, "图片已保存", Toast.LENGTH_SHORT).show()
+        }.onFailure { t ->
+            Toast.makeText(context, "保存失败：${t.message ?: t.javaClass.simpleName}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val openAttachment: (UiMediaAttachment) -> Unit = { attachment ->
+        if (attachment.kind == UiMediaKind.Image) {
+            previewImageAttachment = attachment
+        } else {
+            openAttachmentWithSystem(attachment)
         }
     }
     val toggleAudioPreview: (UiMediaAttachment) -> Unit = { attachment ->
@@ -2695,18 +2760,41 @@ fun ChatScreen(vm: ChatViewModel) {
     }
 
     selectedToolGroup?.let { group ->
-        ToolResultsDialog(
-            group = group,
-            state = state,
-            expandedToolMessages = expandedToolMessages,
-            currentPreviewAudioRef = previewAudioRef,
-            currentPreviewAudioDurationMs = previewAudioDurationMs,
-            currentPreviewAudioPositionMs = previewAudioPositionMs,
-            onDismiss = { selectedToolGroupStartId = null },
-            onOpenAttachment = openAttachment,
-            onToggleAudioPreview = toggleAudioPreview
-        )
+        ModalBottomSheet(
+            onDismissRequest = {
+                selectedToolGroupStartId = null
+                selectedToolMessageId = null
+            },
+            containerColor = Color(0xFFF8FAFC),
+            contentColor = Color(0xFF111827),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        ) {
+            ToolResultsSheet(
+                group = group,
+                state = state,
+                selectedMessageId = selectedToolMessageId,
+                expandedToolMessages = expandedToolMessages,
+                currentPreviewAudioRef = previewAudioRef,
+                currentPreviewAudioDurationMs = previewAudioDurationMs,
+                currentPreviewAudioPositionMs = previewAudioPositionMs,
+                onDismiss = {
+                    selectedToolGroupStartId = null
+                    selectedToolMessageId = null
+                },
+                onOpenAttachment = openAttachment,
+                onToggleAudioPreview = toggleAudioPreview
+            )
+        }
     }
+
+    selectedTraceId
+        ?.let { id -> state.inlineTraces.firstOrNull { it.id == id } }
+        ?.let { trace ->
+            InlineTraceDetailDialog(
+                trace = trace,
+                onDismiss = { selectedTraceId = null }
+            )
+        }
 
     if (showQuickRoleCardDialog) {
         AlertDialog(
@@ -2739,6 +2827,79 @@ fun ChatScreen(vm: ChatViewModel) {
                 ) { Text("保存并绑定") }
             },
             dismissButton = { TextButton(onClick = { showQuickRoleCardDialog = false }) { Text("取消") } }
+        )
+    }
+
+    if (modelMenuExpanded) {
+        val providerModelGroups = state.settingsProviderConfigs
+            .filter { it.equippedModels.isNotEmpty() || it.model.isNotBlank() }
+            .ifEmpty {
+                listOf(
+                    UiProviderConfig(
+                        id = "__current__",
+                        providerName = state.settingsProvider,
+                        customName = state.settingsProviderCustomName,
+                        providerProtocol = state.settingsProviderProtocol,
+                        apiKey = state.settingsApiKey,
+                        model = state.settingsModel,
+                        equippedModels = state.settingsEquippedModels.ifEmpty { listOf(state.settingsModel).filter { it.isNotBlank() } },
+                        baseUrl = state.settingsBaseUrl,
+                        enabled = true
+                    )
+                )
+            }
+        ModalBottomSheet(
+            onDismissRequest = { modelMenuExpanded = false },
+            containerColor = Color(0xFFF8FAFC),
+            contentColor = Color(0xFF111827),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        ) {
+            ModelPickerSheet(
+                configs = providerModelGroups,
+                currentModel = state.settingsModel,
+                onSelect = { config, model ->
+                    if (config.id == "__current__") vm.switchActiveModel(model) else vm.switchProviderModel(config.id, model)
+                    modelMenuExpanded = false
+                },
+                onDismiss = { modelMenuExpanded = false }
+            )
+        }
+    }
+
+    if (roleCardMenuExpanded) {
+        ModalBottomSheet(
+            onDismissRequest = { roleCardMenuExpanded = false },
+            containerColor = Color(0xFFF8FAFC),
+            contentColor = Color(0xFF111827),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        ) {
+            RoleCardPickerSheet(
+                cards = state.roleCards.filter { it.enabled },
+                activeRoleCardId = state.activeRoleCardId,
+                onCreate = {
+                    showQuickRoleCardDialog = true
+                    roleCardMenuExpanded = false
+                },
+                onClear = {
+                    vm.bindRoleCardToCurrentSession(null)
+                    roleCardMenuExpanded = false
+                },
+                onSelect = { cardId ->
+                    vm.bindRoleCardToCurrentSession(cardId)
+                    roleCardMenuExpanded = false
+                },
+                onDismiss = { roleCardMenuExpanded = false }
+            )
+        }
+    }
+
+    previewImageAttachment?.let { attachment ->
+        AttachmentImagePreviewDialog(
+            attachment = attachment,
+            onDismiss = { previewImageAttachment = null },
+            onShare = { shareAttachment(attachment) },
+            onOpenExternal = { openAttachmentWithSystem(attachment) },
+            onSave = { saveImageAttachment(attachment) }
         )
     }
 
@@ -2994,7 +3155,7 @@ fun ChatScreen(vm: ChatViewModel) {
                         color = Color.White,
                         contentColor = Color(0xFF171A20),
                         tonalElevation = 0.dp,
-                        shadowElevation = 8.dp
+                        shadowElevation = 0.dp
                     ) {
                         Column(
                             modifier = Modifier
@@ -3009,14 +3170,14 @@ fun ChatScreen(vm: ChatViewModel) {
                                         strokeWidth = 1f
                                     )
                                 }
-                                .padding(top = 7.dp, bottom = 8.dp)
+                                .padding(top = 8.dp, bottom = 9.dp)
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(42.dp)
-                                    .padding(horizontal = 10.dp),
-                                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                    .height(44.dp)
+                                    .padding(horizontal = 14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 ModernCircleToolButton(
@@ -3024,12 +3185,60 @@ fun ChatScreen(vm: ChatViewModel) {
                                     contentDescription = "打开菜单",
                                     onClick = { dismissKeyboard(); uiScope.launch { drawerState.open() } }
                                 )
-                                Spacer(modifier = Modifier.weight(1f))
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f),
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = Color.Transparent,
+                                    contentColor = Color(0xFF151923)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Surface(
+                                            modifier = Modifier.size(22.dp),
+                                            shape = CircleShape,
+                                            color = Color(0xFF0B1020)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Text("◐", style = MaterialTheme.typography.labelMedium, color = Color.White, fontWeight = FontWeight.Black)
+                                            }
+                                        }
+                                        Text(
+                                            text = state.settingsModel.ifBlank { ProviderCatalog.resolve(state.settingsProvider).title },
+                                            style = MaterialTheme.typography.titleMedium.copy(fontSize = 19.sp),
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(17.dp), tint = Color(0xFF98A1B2))
+                                    }
+                                }
                                 ModernCircleToolButton(
                                     icon = Icons.Rounded.Search,
                                     contentDescription = "搜索聊天",
                                     onClick = { showChatSearch = !showChatSearch }
                                 )
+                                ModernCircleToolButton(
+                                    icon = Icons.Rounded.Tune,
+                                    contentDescription = "设置",
+                                    onClick = {
+                                        vm.openSettings()
+                                        settingsPageName = SettingsPanelPage.Home.name
+                                        mainSurfaceName = MainSurface.Settings.name
+                                    }
+                                )
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 14.dp, vertical = 5.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 TerminalHeaderChip(
                                     enabled = state.terminalRuntime.enabled,
                                     hasPermission = state.terminalRuntime.overlayPermissionGranted,
@@ -3045,18 +3254,19 @@ fun ChatScreen(vm: ChatViewModel) {
                                 )
                                 Surface(
                                     modifier = Modifier
-                                        .height(28.dp)
+                                        .height(36.dp)
                                         .combinedClickable(
                                             onClick = { vm.showSettingsInfo("长按 K 值可主动压缩当前对话") },
                                             onLongClick = { showCompressionConfirm = true }
                                         ),
                                     shape = RoundedCornerShape(999.dp),
-                                    color = Color(0xFFF8FAFC),
+                                    color = Color.White,
                                     contentColor = Color(0xFF1B1E26),
-                                    border = BorderStroke(1.dp, Color(0xFFE6EAF1))
+                                    border = BorderStroke(1.dp, Color(0xFFE9EDF5)),
+                                    shadowElevation = 6.dp
                                 ) {
                                     Box(
-                                        modifier = Modifier.padding(horizontal = 9.dp),
+                                        modifier = Modifier.padding(horizontal = 12.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
@@ -3148,28 +3358,6 @@ fun ChatScreen(vm: ChatViewModel) {
                                         onClick = { modelMenuExpanded = true },
                                         modifier = Modifier.widthIn(max = 220.dp)
                                     )
-                                    DropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
-                                        providerModelGroups.forEach { config ->
-                                            val providerLabel = config.customName.ifBlank { ProviderCatalog.resolve(config.providerName).title }
-                                            DropdownMenuItem(
-                                                text = { Text(providerLabel, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary) },
-                                                onClick = {}
-                                            )
-                                            (config.equippedModels + config.model)
-                                                .map { it.trim() }
-                                                .filter { it.isNotBlank() }
-                                                .distinct()
-                                                .forEach { model ->
-                                                    DropdownMenuItem(
-                                                        text = { Text(model, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                                        onClick = {
-                                                            if (config.id == "__current__") vm.switchActiveModel(model) else vm.switchProviderModel(config.id, model)
-                                                            modelMenuExpanded = false
-                                                        }
-                                                    )
-                                                }
-                                        }
-                                    }
                                 }
                                 Box {
                                     CompactHeaderChip(
@@ -3178,13 +3366,6 @@ fun ChatScreen(vm: ChatViewModel) {
                                         onClick = { roleCardMenuExpanded = true },
                                         modifier = Modifier.widthIn(max = 190.dp)
                                     )
-                                    DropdownMenu(expanded = roleCardMenuExpanded, onDismissRequest = { roleCardMenuExpanded = false }) {
-                                        DropdownMenuItem(text = { Text("新建角色卡") }, onClick = { showQuickRoleCardDialog = true; roleCardMenuExpanded = false })
-                                        DropdownMenuItem(text = { Text("解绑角色卡") }, onClick = { vm.bindRoleCardToCurrentSession(null); roleCardMenuExpanded = false })
-                                        state.roleCards.filter { it.enabled }.forEach { card ->
-                                            DropdownMenuItem(text = { Text("${card.avatarSymbol} ${card.name}") }, onClick = { vm.bindRoleCardToCurrentSession(card.id); roleCardMenuExpanded = false })
-                                        }
-                                    }
                                 }
                                 if (state.currentAgentName.isNotBlank()) {
                                     CompactHeaderChip("智能体：${state.currentAgentName}", Icons.Rounded.Tune, onClick = { mainSurfaceName = MainSurface.Agents.name }, modifier = Modifier.widthIn(max = 190.dp))
@@ -3193,93 +3374,11 @@ fun ChatScreen(vm: ChatViewModel) {
                         }
                     }
 
-                    MainSurface.Settings, MainSurface.Skills, MainSurface.Tools, MainSurface.Memory, MainSurface.Agents, MainSurface.Theme, MainSurface.Environment -> TopAppBar(
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = Color.White,
-                            titleContentColor = ModernPanelTokens.Text,
-                            navigationIconContentColor = ModernPanelTokens.Text
-                        ),
-                        title = {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.lgclaw_mark),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(30.dp),
-                                        tint = ModernPanelTokens.Text
-                                    )
-                                Column {
-                                    Text(
-                                        text = when (mainSurface) { MainSurface.Skills -> "技能"; MainSurface.Tools -> "工具"; MainSurface.Memory -> "记忆"; MainSurface.Agents -> "智能体"; MainSurface.Theme -> "主题"; MainSurface.Environment -> "运行环境"; else -> settingsPageTitle },
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    (when (mainSurface) { MainSurface.Skills -> "技能商店与 @ 指令"; MainSurface.Tools -> "动态工作流工具"; MainSurface.Memory -> "本地记忆与压缩记忆"; MainSurface.Agents -> "会话绑定智能体"; MainSurface.Theme -> "字体、气泡与背景"; MainSurface.Environment -> "内嵌 Node/Python/Git/SSH 工具链"; else -> settingsPageSubtitle }).takeIf { it.isNotBlank() }?.let { subtitle ->
-                                            Text(
-                                            text = subtitle,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = ModernPanelTokens.Muted,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-                            }
-                        },
-                        navigationIcon = {
-                            IconButton(
-                                onClick = {
-                                    if (mainSurface != MainSurface.Settings || settingsPage == SettingsPanelPage.Home) {
-                                        uiScope.launch {
-                                            mainSurfaceName = MainSurface.Chat.name
-                                            runCatching { drawerState.snapTo(DrawerValue.Open) }
-                                                .onFailure { drawerState.open() }
-                                        }
-                                    } else {
-                                        settingsPageName = SettingsPanelPage.Home.name
-                                    }
-                                }
-                            ) {
-                                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回")
-                            }
-                        },
-                        actions = {
-                            if (settingsPage == SettingsPanelPage.Home) {
-                                IconButton(onClick = vm::toggleUiLanguage) {
-                                    Icon(
-                                        Icons.Rounded.Translate,
-                                        contentDescription = "切换语言",
-                                        tint = if (state.settingsUseChinese) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        }
-                                    )
-                                }
-                                IconButton(onClick = vm::toggleUiTheme) {
-                                    Icon(
-                                        imageVector = if (state.settingsDarkTheme) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
-                                        contentDescription = tr("Toggle theme", "切换主题"),
-                                        tint = if (state.settingsDarkTheme) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        }
-                                    )
-                                }
-                            }
-                            if (state.settingsSaving) {
-                                Text(
-                                    text = "保存中...",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
+                    MainSurface.Settings, MainSurface.Skills, MainSurface.Tools, MainSurface.Memory, MainSurface.Agents, MainSurface.Theme, MainSurface.Environment -> Spacer(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .height(6.dp)
                     )
                 }
             }
@@ -3384,7 +3483,7 @@ fun ChatScreen(vm: ChatViewModel) {
                                 }
                             }
                         items(
-                            items = visibleMessages,
+                            items = compactVisibleMessages,
                             key = { it.id },
                             contentType = { message ->
                                 when {
@@ -3397,6 +3496,7 @@ fun ChatScreen(vm: ChatViewModel) {
                         ) { message ->
                             val isUser = message.role == "user"
                             val isTool = message.role == "tool"
+                            val isTrace = message.role == "trace"
                             val isSystem = message.role == "system"
                             val isDarkTheme = isSystemInDarkTheme()
                             val selectedForAction = selectedMessageIds.contains(message.id)
@@ -3419,10 +3519,11 @@ fun ChatScreen(vm: ChatViewModel) {
                             val messageLineHeightMultiplier = state.themeMessageLineHeightMultiplier.coerceIn(1f, 1.7f)
                             val messageLineHeight = (state.themeMessageFontSizeSp.coerceIn(12f, 20f) * messageLineHeightMultiplier).sp
                             val bubbleStyle = UiBubbleStyle.fromKey(state.themeBubbleStyle)
+                            val naturalTextColor = themeTextColor ?: if (isDarkTheme) Color.White.copy(alpha = 0.92f) else Color(0xFF171A20)
                             val bubbleColors = when {
                                 isUser -> {
                                     val container = themedBubbleContainer(parseThemeColorOrNull(state.themeUserBubbleColorHex) ?: MaterialTheme.colorScheme.primaryContainer, bubbleStyle, state)
-                                    val content = themeTextColor ?: readableTextColor(container, isDarkTheme)
+                                    val content = if (bubbleStyle == UiBubbleStyle.None) naturalTextColor else themeTextColor ?: readableTextColor(container, isDarkTheme)
                                     ChatBubbleColors(
                                         container = container,
                                         content = content,
@@ -3433,7 +3534,7 @@ fun ChatScreen(vm: ChatViewModel) {
 
                                 isTool -> {
                                     val container = themedBubbleContainer(parseThemeColorOrNull(state.themeToolBubbleColorHex) ?: MaterialTheme.colorScheme.secondaryContainer, bubbleStyle, state)
-                                    val content = themeTextColor ?: readableTextColor(container, isDarkTheme)
+                                    val content = if (bubbleStyle == UiBubbleStyle.None) naturalTextColor else themeTextColor ?: readableTextColor(container, isDarkTheme)
                                     ChatBubbleColors(
                                         container = container,
                                         content = content,
@@ -3444,7 +3545,7 @@ fun ChatScreen(vm: ChatViewModel) {
 
                                 isSystem -> {
                                     val container = themedBubbleContainer(MaterialTheme.colorScheme.tertiaryContainer, bubbleStyle, state)
-                                    val content = themeTextColor ?: readableTextColor(container, isDarkTheme)
+                                    val content = if (bubbleStyle == UiBubbleStyle.None) naturalTextColor else themeTextColor ?: readableTextColor(container, isDarkTheme)
                                     ChatBubbleColors(
                                         container = container,
                                         content = content,
@@ -3460,7 +3561,7 @@ fun ChatScreen(vm: ChatViewModel) {
                                         MaterialTheme.colorScheme.surface
                                     }
                                     val container = themedBubbleContainer(assistantBase, bubbleStyle, state)
-                                    val content = themeTextColor ?: readableTextColor(container, isDarkTheme)
+                                    val content = if (bubbleStyle == UiBubbleStyle.None) naturalTextColor else themeTextColor ?: readableTextColor(container, isDarkTheme)
                                     ChatBubbleColors(
                                         container = container,
                                         content = content,
@@ -3491,27 +3592,39 @@ fun ChatScreen(vm: ChatViewModel) {
                                 message.content.startsWith("计划模式：${pendingPlan.mode.label}") &&
                                 message.content.contains(pendingPlan.planText.take(80).trim())
                             if (isUser) {
+                                val isLongUserText = displayContent.length > 180 || displayContent.lines().size > 4
+                                val userBubbleWidthFactor = if (isLongUserText) 0.68f else 0.82f
                                 Box(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = if (isLongUserText) 96.dp else 64.dp),
                                     contentAlignment = Alignment.CenterEnd
                                 ) {
                                     ThemedMessageBubble(
                                         colors = bubbleColors,
                                         style = bubbleStyle,
                                         state = state,
-                                        modifier = Modifier.widthIn(max = bubbleMaxWidth).then(messageActionModifier)
+                                        modifier = Modifier
+                                            .widthIn(max = bubbleMaxWidth * userBubbleWidthFactor)
+                                            .then(messageActionModifier)
                                     ) {
                                         CompositionLocalProvider(LocalChatBubbleColors provides bubbleColors) {
                                             Column(
-                                                modifier = Modifier
+                                                modifier = Modifier,
+                                                horizontalAlignment = Alignment.End
                                             ) {
                                                 ChatBubbleHeader(
                                                     label = state.userDisplayName.ifBlank { tr("You", "") },
-                                                    createdAt = message.createdAt
+                                                    createdAt = message.createdAt,
+                                                    fillWidth = false
                                                 )
                                                 MarkdownText(
                                                     markdown = displayContent,
-                                                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = messageFontSize, lineHeight = messageLineHeight, fontFamily = themeFontFamily),
+                                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                                        fontSize = if (isLongUserText) (state.themeMessageFontSizeSp.coerceIn(12f, 20f) - 0.5f).sp else messageFontSize,
+                                                        lineHeight = messageLineHeight,
+                                                        fontFamily = themeFontFamily
+                                                    ),
                                                     inlineCodeBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
                                                     quoteBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.56f),
                                                     codeBlockBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f),
@@ -3527,6 +3640,8 @@ fun ChatScreen(vm: ChatViewModel) {
                                                         currentPreviewAudioDurationMs = previewAudioDurationMs,
                                                         currentPreviewAudioPositionMs = previewAudioPositionMs,
                                                         onOpenAttachment = openAttachment,
+                                                        onShareAttachment = ::shareAttachment,
+                                                        onSaveAttachment = ::saveImageAttachment,
                                                         onToggleAudioPreview = toggleAudioPreview
                                                     )
                                                 }
@@ -3534,15 +3649,39 @@ fun ChatScreen(vm: ChatViewModel) {
                                         }
                                     }
                                 }
+                            } else if (isTrace) {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    InlineTraceFlowBar(
+                                        traces = message.traceItems,
+                                        collapsed = traceCollapsed,
+                                        running = message.traceRunning,
+                                        onToggleCollapsed = { traceCollapsed = !traceCollapsed },
+                                        onTraceLongPress = { selectedTraceId = it.id },
+                                        fontSizeSp = state.themeMessageFontSizeSp,
+                                        lineHeightMultiplier = state.themeMessageLineHeightMultiplier,
+                                        modifier = Modifier
+                                            .widthIn(max = bubbleMaxWidth * 1.06f)
+                                            .then(messageActionModifier)
+                                    )
+                                }
                             } else if (isTool) {
                                 val toolGroup = toolGroupsByStartId[message.id]
                                 if (toolGroup == null) {
                                     Spacer(modifier = Modifier.height(0.dp))
                                 } else {
+                                    val toolTypography = scaledMessageTypography(state)
                                     ToolGroupDrawerRow(
                                         group = toolGroup,
+                                        typography = toolTypography,
                                         modifier = messageActionModifier,
-                                        onOpen = { selectedToolGroupStartId = toolGroup.startId }
+                                        onOpenTool = { toolMessageId ->
+                                            selectedToolGroupStartId = toolGroup.startId
+                                            selectedToolMessageId = toolMessageId
+                                            expandedToolMessages[toolMessageId] = true
+                                        }
                                     )
                                 }
                             } else {
@@ -3591,9 +3730,6 @@ fun ChatScreen(vm: ChatViewModel) {
                                                             createdAt = message.createdAt,
                                                             fillWidth = true
                                                         )
-                                                        if (!isSystem && message.id == latestAssistantMessageId && state.inlineTraces.isNotEmpty()) {
-                                                            InlineTraceBar(traces = state.inlineTraces)
-                                                        }
                                                     }
                                                 }
                                                 MarkdownText(
@@ -3622,6 +3758,8 @@ fun ChatScreen(vm: ChatViewModel) {
                                                         currentPreviewAudioDurationMs = previewAudioDurationMs,
                                                         currentPreviewAudioPositionMs = previewAudioPositionMs,
                                                         onOpenAttachment = openAttachment,
+                                                        onShareAttachment = ::shareAttachment,
+                                                        onSaveAttachment = ::saveImageAttachment,
                                                         onToggleAudioPreview = toggleAudioPreview
                                                     )
                                                 }
@@ -3671,7 +3809,11 @@ fun ChatScreen(vm: ChatViewModel) {
                                             )
                                             Column(Modifier.weight(1f)) {
                                                 Text("正在思考", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                                                InlineTraceBar(traces = state.inlineTraces)
+                                                Text(
+                                                    text = "过程记录会直接显示在本轮消息下方",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = ModernPanelTokens.Muted
+                                                )
                                             }
                                         }
                                     }
@@ -3690,13 +3832,12 @@ fun ChatScreen(vm: ChatViewModel) {
                     if (showTerminalMiniOverlay) {
                         Box(
                             modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(start = 12.dp, bottom = chatInputBarClearance + 12.dp)
+                                .align(Alignment.TopEnd)
+                                .padding(top = 74.dp, end = 10.dp)
                         ) {
-                            TerminalMiniOverlay(
+                            TerminalMiniOverlayCompact(
                                 state = state.terminalRuntime,
                                 onExpand = { showTerminalSheet = true },
-                                onCancelTask = vm::cancelTerminalTask,
                                 onDismissOverlay = {
                                     terminalMiniOverlaySuppressed = true
                                     showTerminalMiniOverlay = false
@@ -3768,7 +3909,9 @@ fun ChatScreen(vm: ChatViewModel) {
                     onPickDrawerBackground = { drawerBackgroundPicker.launch("image/*") },
                     onClearDrawerBackground = vm::clearDrawerBackground,
                     onDrawerBackgroundTuning = vm::setDrawerBackgroundTuning,
-                    onResetThemeDefaults = vm::resetThemeDefaults
+                    onResetThemeDefaults = vm::resetThemeDefaults,
+                    onToggleLanguage = vm::toggleUiLanguage,
+                    onToggleThemeMode = vm::toggleUiTheme
                 )
 
                 MainSurface.Environment -> TerminalEnvironmentPanel(
@@ -4073,6 +4216,98 @@ private fun MessageActionSheet(
 }
 
 @Composable
+private fun InlineTraceDetailDialog(
+    trace: UiInlineTrace,
+    onDismiss: () -> Unit
+) {
+    val scrollState = rememberScrollState()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color.White,
+        shape = RoundedCornerShape(22.dp),
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("思考源头", fontWeight = FontWeight.ExtraBold, color = ModernPanelTokens.Text)
+                Text(
+                    text = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(trace.createdAt)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ModernPanelTokens.Muted
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TraceDetailPill(trace.sourceType.ifBlank { trace.title.ifBlank { "状态" } })
+                    TraceDetailPill(trace.sourceName.ifBlank { "当前调度" }, soft = true)
+                }
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFFF7F9FC),
+                    border = BorderStroke(1.dp, ModernPanelTokens.Border)
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("公开说明", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ModernPanelTokens.Text)
+                        Text(
+                            text = trace.detail.ifBlank { "暂无详情" },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = ModernPanelTokens.Text
+                        )
+                    }
+                }
+                if (trace.rawPreview.isNotBlank() && trace.rawPreview != trace.detail) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White,
+                        border = BorderStroke(1.dp, ModernPanelTokens.Border)
+                    ) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("源头预览", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ModernPanelTokens.Text)
+                            Text(
+                                text = trace.rawPreview,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = ModernPanelTokens.Muted
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            ModernPrimaryButton(text = "知道了", onClick = onDismiss)
+        }
+    )
+}
+
+@Composable
+private fun TraceDetailPill(
+    text: String,
+    soft: Boolean = false
+) {
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = if (soft) Color(0xFFF5F7FB) else ModernPanelTokens.AccentSoft,
+        contentColor = if (soft) ModernPanelTokens.Muted else ModernPanelTokens.Accent,
+        border = if (soft) BorderStroke(1.dp, ModernPanelTokens.Border) else null
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
 private fun SheetActionRow(
     icon: ImageVector,
     label: String,
@@ -4094,6 +4329,253 @@ private fun SheetActionRow(
             val color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
             Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
             Text(label, color = color, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+@Composable
+private fun AttachmentImagePreviewDialog(
+    attachment: UiMediaAttachment,
+    onDismiss: () -> Unit,
+    onShare: () -> Unit,
+    onOpenExternal: () -> Unit,
+    onSave: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        containerColor = Color.White,
+        shape = RoundedCornerShape(24.dp),
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = attachment.label.ifBlank { "图片预览" },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = listOf(
+                            attachment.mimeType.takeIf { it.isNotBlank() },
+                            attachment.sizeBytes.takeIf { it > 0L }?.let(::formatAttachmentSize)
+                        ).filterNotNull().joinToString(" · "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF7B8494),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Rounded.Close, contentDescription = "关闭")
+                }
+            }
+        },
+        text = {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xFFF6F8FB),
+                border = BorderStroke(1.dp, Color(0xFFE6EAF1))
+            ) {
+                Image(
+                    painter = rememberAsyncImagePainter(
+                        attachment.contentUri.ifBlank { attachment.reference }
+                    ),
+                    contentDescription = attachment.label,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 220.dp, max = 520.dp)
+                        .padding(8.dp)
+                )
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onSave) { Text("保存") }
+                TextButton(onClick = onShare) { Text("分享") }
+                Button(
+                    onClick = onOpenExternal,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF111827))
+                ) {
+                    Text("其他应用")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        }
+    )
+}
+
+@Composable
+private fun ModelPickerSheet(
+    configs: List<UiProviderConfig>,
+    currentModel: String,
+    onSelect: (UiProviderConfig, String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 480.dp)
+            .padding(start = 14.dp, end = 14.dp, bottom = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        SheetHeader(title = "选择模型", subtitle = "按供应商分组，点击模型立即切换", onDismiss = onDismiss)
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 410.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(configs, key = { it.id }) { config ->
+                val providerLabel = config.customName.ifBlank { ProviderCatalog.resolve(config.providerName).title }
+                val models = (config.equippedModels + config.model)
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color.White,
+                    contentColor = Color(0xFF111827),
+                    border = BorderStroke(1.dp, Color(0xFFE7ECF5)),
+                    shadowElevation = 4.dp
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(9.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(modifier = Modifier.size(32.dp), shape = CircleShape, color = Color(0xFFEAF1FF), contentColor = Color(0xFF4A6DDF)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(providerLabel.take(1).uppercase(Locale.US), fontWeight = FontWeight.Black)
+                                }
+                            }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                Text(providerLabel, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(config.providerProtocol.name.lowercase(Locale.US), style = MaterialTheme.typography.labelSmall, color = Color(0xFF7B8495), maxLines = 1)
+                            }
+                            if (config.enabled) ModernStatusPill("当前供应商")
+                        }
+                        models.forEach { model ->
+                            val selected = model == currentModel
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSelect(config, model) },
+                                shape = RoundedCornerShape(14.dp),
+                                color = if (selected) Color(0xFFEFF5FF) else Color(0xFFF8FAFC),
+                                contentColor = if (selected) Color(0xFF3156D4) else Color(0xFF202736),
+                                border = BorderStroke(1.dp, if (selected) Color(0xFFBBD0FF) else Color(0xFFEAEFF6))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(model, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (selected) {
+                                        Text("已选", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold, color = Color(0xFF3156D4))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoleCardPickerSheet(
+    cards: List<UiRoleCard>,
+    activeRoleCardId: String,
+    onCreate: () -> Unit,
+    onClear: () -> Unit,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 480.dp)
+            .padding(start = 14.dp, end = 14.dp, bottom = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        SheetHeader(title = "角色卡", subtitle = "选择当前会话的人设与表达方式", onDismiss = onDismiss)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ModernSecondaryButton(text = "新建角色卡", onClick = onCreate, modifier = Modifier.weight(1f))
+            ModernSecondaryButton(text = "解绑", onClick = onClear, modifier = Modifier.weight(1f))
+        }
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 380.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(cards, key = { it.id }) { card ->
+                val selected = card.id == activeRoleCardId
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelect(card.id) },
+                    shape = RoundedCornerShape(18.dp),
+                    color = if (selected) Color(0xFFEFF5FF) else Color.White,
+                    contentColor = Color(0xFF111827),
+                    border = BorderStroke(1.dp, if (selected) Color(0xFFBBD0FF) else Color(0xFFE7ECF5)),
+                    shadowElevation = if (selected) 6.dp else 3.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(modifier = Modifier.size(40.dp), shape = RoundedCornerShape(15.dp), color = Color(0xFFF0F4FF), contentColor = Color(0xFF405BD8)) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(card.avatarSymbol.ifBlank { card.name.take(1) }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, maxLines = 1)
+                            }
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(card.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(card.description.ifBlank { card.persona }.ifBlank { "暂无描述" }, style = MaterialTheme.typography.labelSmall, color = Color(0xFF6B7280), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        if (selected) ModernStatusPill("已绑定")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SheetHeader(
+    title: String,
+    subtitle: String,
+    onDismiss: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = Color(0xFF111827))
+            Text(subtitle, style = MaterialTheme.typography.labelSmall, color = Color(0xFF6B7280), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        TextButton(onClick = onDismiss, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+            Text("关闭", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -4219,7 +4701,9 @@ private fun ThemePanel(
     onPickDrawerBackground: () -> Unit,
     onClearDrawerBackground: () -> Unit,
     onDrawerBackgroundTuning: (Float, Float, Float) -> Unit,
-    onResetThemeDefaults: () -> Unit
+    onResetThemeDefaults: () -> Unit,
+    onToggleLanguage: () -> Unit,
+    onToggleThemeMode: () -> Unit
     ) {
     val scrollState = rememberScrollState()
     var userColorDraft by remember(state.themeUserBubbleColorHex) { mutableStateOf(state.themeUserBubbleColorHex) }
@@ -4240,6 +4724,23 @@ private fun ThemePanel(
         )
 
         ThemeLivePreview(state = state)
+
+        SettingsSectionCard(title = "界面偏好", subtitle = "语言和明暗模式已收纳到主题中心，首页顶部保持干净") {
+            ThemePreferenceToggleRow(
+                icon = Icons.Rounded.Translate,
+                title = "一键中英文",
+                subtitle = if (state.settingsUseChinese) "当前使用中文界面" else "当前使用英文界面",
+                checked = state.settingsUseChinese,
+                onClick = onToggleLanguage
+            )
+            ThemePreferenceToggleRow(
+                icon = if (state.settingsDarkTheme) Icons.Rounded.DarkMode else Icons.Rounded.LightMode,
+                title = "深色模式",
+                subtitle = if (state.settingsDarkTheme) "已开启深色显示" else "已使用浅色显示",
+                checked = state.settingsDarkTheme,
+                onClick = onToggleThemeMode
+            )
+        }
 
         SettingsSectionCard(title = "主题预设", subtitle = "一键切换完整视觉方案，背景图片会保留") {
             ThemePresetGrid(selected = state.themePreset, onPresetApply = onPresetApply)
@@ -4373,6 +4874,70 @@ private fun ThemePanel(
 }
 
 @Composable
+private fun ThemePreferenceToggleRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 58.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = if (checked) Color(0xFFF4F8FF) else Color.White,
+        contentColor = ModernPanelTokens.Text,
+        border = BorderStroke(1.dp, if (checked) Color(0xFFD8E6FF) else Color(0xFFE7EAF0)),
+        shadowElevation = if (checked) 3.dp else 1.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(34.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = if (checked) Color(0xFF3977F6) else Color(0xFFF5F7FA),
+                contentColor = if (checked) Color.White else ModernPanelTokens.Text
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ModernPanelTokens.Muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = if (checked) Color(0xFF111827) else Color(0xFFF1F4F8),
+                contentColor = if (checked) Color.White else ModernPanelTokens.Muted,
+                border = BorderStroke(1.dp, if (checked) Color(0xFF111827) else Color(0xFFE1E6EF))
+            ) {
+                Text(
+                    text = if (checked) "已开" else "未开",
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ThemeChoiceRow(
     title: String,
     items: List<Pair<String, String>>,
@@ -4397,28 +4962,40 @@ private fun ThemeChoiceRow(
 @Composable
 private fun ThemePresetGrid(selected: String, onPresetApply: (String) -> Unit) {
     val presets = listOf(
-        ThemePresetUi("obsidian_glass", "云白玻璃", "清爽、通透、默认推荐", "#DCEBFF", "#FFFFFF"),
-        ThemePresetUi("aurora_water", "晨雾蓝", "轻水玻璃、柔光边缘", "#D7F3FF", "#FAFCFF"),
+        ThemePresetUi("obsidian_glass", "云白雾面", "干净、柔软、默认推荐", "#E4EEFF", "#FFFFFF"),
+        ThemePresetUi("aurora_water", "浅溪水晶", "薄边缘、高透气感", "#DDF5FF", "#FBFDFF"),
         ThemePresetUi("paper_reading", "纸光阅读", "长文舒服、低刺激", "#EEF3FF", "#FFFDF8"),
-        ThemePresetUi("neon_night", "水晶浮层", "浅色晶面、细腻层次", "#E6F4FF", "#FFFFFF"),
-        ThemePresetUi("native_clear", "银杏暖白", "温暖、轻快、留白克制", "#FFF1D8", "#FFFFFF")
+        ThemePresetUi("plain_flow", "清稿无气泡", "自然贴合、长文沉浸", "#F7F8FA", "#FFFFFF"),
+        ThemePresetUi("neon_night", "银蓝浮层", "浅色晶面、细腻秩序", "#EAF4FF", "#FFFFFF"),
+        ThemePresetUi("native_clear", "银杏暖白", "温暖、轻快、留白克制", "#FFF0D6", "#FFFFFF")
     )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         presets.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 row.forEach { preset ->
-                    ModernSectionCard(
+                    val isSelected = selected == preset.key
+                    Surface(
                         modifier = Modifier
                             .weight(1f)
                             .heightIn(min = 86.dp)
-                            .clickable { onPresetApply(preset.key) }
+                            .clickable { onPresetApply(preset.key) },
+                        shape = RoundedCornerShape(18.dp),
+                        color = Color.White,
+                        contentColor = ModernPanelTokens.Text,
+                        border = BorderStroke(1.dp, if (isSelected) Color(0xFF8FB5FF) else Color(0xFFE6EAF1)),
+                        shadowElevation = if (isSelected) 4.dp else 1.dp
                     ) {
                         Column(
+                            modifier = Modifier.padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(7.dp)
                         ) {
                             Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                                 ThemeColorDot(preset.userColor)
                                 ThemeColorDot(preset.assistantColor)
+                                Spacer(modifier = Modifier.weight(1f))
+                                if (isSelected) {
+                                    ModernStatusPill("当前")
+                                }
                             }
                             Text(preset.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                             Text(
@@ -4642,8 +5219,50 @@ private data class ToolMessageGroup(
     val messages: List<UiMessage>
 ) {
     val createdAt: Long = messages.firstOrNull()?.createdAt ?: 0L
-    val summary: String = messages.firstOrNull()?.content.orEmpty().trim().ifBlank { "工具已返回结果" }
+    val status: String = messages
+        .map { it.content.lowercase(Locale.US) }
+        .firstOrNull { "error" in it || "failed" in it || "pending" in it }
+        ?.let { if ("pending" in it) "pending" else "error" }
+        ?: "ok"
+    val summary: String = messages
+        .asSequence()
+        .mapNotNull { TraceNoteExtractor.extractAssistantNote(it.expandedContent ?: it.content) }
+        .firstOrNull()
+        ?: messages
+            .asSequence()
+            .map { TraceNoteExtractor.cleanTraceText(it.content, 72) }
+            .firstOrNull { it.isNotBlank() }
+        ?: "工具已返回结果"
     val attachmentCount: Int = messages.sumOf { it.attachments.size }
+}
+
+private data class ScaledMessageTypography(
+    val bodySize: TextUnit,
+    val bodyLineHeight: TextUnit,
+    val pillTitleSize: TextUnit,
+    val badgeSize: TextUnit,
+    val terminalSize: TextUnit,
+    val terminalLineHeight: TextUnit,
+    val lineHeightMultiplier: Float,
+    val fontFamily: FontFamily,
+    val typeface: Typeface?
+)
+
+@Composable
+private fun scaledMessageTypography(state: ChatUiState): ScaledMessageTypography {
+    val base = state.themeMessageFontSizeSp.coerceIn(12f, 20f)
+    val lineMultiplier = state.themeMessageLineHeightMultiplier.coerceIn(1f, 1.7f)
+    return ScaledMessageTypography(
+        bodySize = base.sp,
+        bodyLineHeight = (base * lineMultiplier).sp,
+        pillTitleSize = (base - 1f).coerceIn(11f, 18f).sp,
+        badgeSize = (base - 3f).coerceIn(9f, 14f).sp,
+        terminalSize = (base - 1f).coerceIn(11f, 17f).sp,
+        terminalLineHeight = ((base - 1f).coerceIn(11f, 17f) * 1.35f).sp,
+        lineHeightMultiplier = lineMultiplier,
+        fontFamily = themeFontFamilyFor(state.themeFontFamily),
+        typeface = rememberThemeTypeface(state.themeFontFamily, state.themeCustomFontPath)
+    )
 }
 
 private fun buildToolMessageGroups(messages: List<UiMessage>): List<ToolMessageGroup> {
@@ -4669,61 +5288,128 @@ private fun buildToolMessageGroups(messages: List<UiMessage>): List<ToolMessageG
 @Composable
 private fun ToolGroupDrawerRow(
     group: ToolMessageGroup,
+    typography: ScaledMessageTypography,
     modifier: Modifier = Modifier,
-    onOpen: () -> Unit
+    onOpenTool: (Long) -> Unit
 ) {
-    Box(
-        modifier = Modifier.fillMaxWidth(),
-        contentAlignment = Alignment.CenterStart
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(start = 2.dp, top = 3.dp, bottom = 3.dp)
+            .then(modifier),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Surface(
-            onClick = onOpen,
-            modifier = Modifier
-                .widthIn(max = 286.dp)
-                .then(modifier),
-            shape = RoundedCornerShape(16.dp),
-            color = Color.White,
-            contentColor = ModernPanelTokens.Text,
-            border = BorderStroke(1.dp, ModernPanelTokens.Border),
-            shadowElevation = 1.dp
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+        group.messages.forEachIndexed { index, message ->
+            val status = toolStatusFromMessage(message).let { if (it == "ok" && group.status != "ok") group.status else it }
+            val statusColor = toolStatusColor(status)
+            Surface(
+                modifier = Modifier.combinedClickable(
+                    onClick = {},
+                    onLongClick = { onOpenTool(message.id) }
+                ),
+                shape = RoundedCornerShape(999.dp),
+                color = Color(0xFFF8FAFC).copy(alpha = 0.96f),
+                contentColor = Color(0xFF263241),
+                border = BorderStroke(1.dp, Color(0xFFE4EAF2)),
+                shadowElevation = 2.dp
             ) {
-                Surface(
-                    shape = RoundedCornerShape(999.dp),
-                    color = ModernPanelTokens.AccentSoft,
-                    contentColor = ModernPanelTokens.Accent
+                Row(
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "${group.messages.size} 个工具",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Text(
-                        text = "工具",
-                        style = MaterialTheme.typography.bodySmall,
+                        text = toolShortName(message, index),
+                        style = MaterialTheme.typography.labelMedium.copy(fontSize = typography.pillTitleSize),
                         fontWeight = FontWeight.Bold,
-                        color = ModernPanelTokens.Text
-                    )
-                    Text(
-                        text = group.summary,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = ModernPanelTokens.Muted,
+                        color = Color(0xFF263241),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    Text(
+                        text = "[${toolStatusShort(status)}]",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = typography.badgeSize),
+                        fontWeight = FontWeight.ExtraBold,
+                        color = statusColor,
+                        maxLines = 1
+                    )
                 }
-                Text(
-                    text = "展开",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = ModernPanelTokens.Accent
+            }
+        }
+        Surface(
+            modifier = Modifier.combinedClickable(
+                onClick = {},
+                onLongClick = { onOpenTool(group.messages.firstOrNull()?.id ?: group.startId) }
+            ),
+            shape = RoundedCornerShape(999.dp),
+            color = Color(0xFFEFF4F2),
+            contentColor = Color(0xFF607268),
+            border = BorderStroke(1.dp, Color(0xFFDDE8E4))
+        ) {
+            Text(
+                text = "长按查看",
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = typography.badgeSize),
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun ToolInlineDrawer(
+    group: ToolMessageGroup,
+    state: ChatUiState,
+    typography: ScaledMessageTypography,
+    expandedToolMessages: MutableMap<Long, Boolean>,
+    currentPreviewAudioRef: String?,
+    currentPreviewAudioDurationMs: Int,
+    currentPreviewAudioPositionMs: Int,
+    onOpenFullDetail: () -> Unit,
+    onOpenAttachment: (UiMediaAttachment) -> Unit,
+    onToggleAudioPreview: (UiMediaAttachment) -> Unit
+) {
+    val notes = group.messages.mapNotNull { message ->
+        TraceNoteExtractor.extractAssistantNoteFull(message.expandedContent ?: message.content)
+            ?.takeIf { it.isNotBlank() }
+    }.distinct()
+    val fallbackSummary = group.messages
+        .asSequence()
+        .map { TraceNoteExtractor.cleanTraceText(it.expandedContent ?: it.content, 420) }
+        .firstOrNull { it.isNotBlank() }
+        ?: "已完成工具调度"
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 14.dp, end = 8.dp, bottom = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        ToolNoteBlock(
+            title = toolCompletionTitle(group),
+            body = notes.joinToString("\n\n").ifBlank { fallbackSummary },
+            typography = typography
+        )
+        group.messages.forEachIndexed { index, message ->
+            val cardExpanded = expandedToolMessages[message.id] == true
+            ToolTerminalPreviewCard(
+                message = message,
+                index = index,
+                expanded = cardExpanded,
+                typography = typography,
+                onToggleExpanded = { expandedToolMessages[message.id] = !cardExpanded },
+                onOpenFullDetail = onOpenFullDetail
+            )
+            if (message.attachments.isNotEmpty()) {
+                MediaAttachmentList(
+                    attachments = message.attachments,
+                    currentPreviewAudioRef = currentPreviewAudioRef,
+                    currentPreviewAudioDurationMs = currentPreviewAudioDurationMs,
+                    currentPreviewAudioPositionMs = currentPreviewAudioPositionMs,
+                    onOpenAttachment = onOpenAttachment,
+                    onToggleAudioPreview = onToggleAudioPreview
                 )
             }
         }
@@ -4731,9 +5417,229 @@ private fun ToolGroupDrawerRow(
 }
 
 @Composable
-private fun ToolResultsDialog(
+private fun ToolNoteBlock(
+    title: String,
+    body: String,
+    typography: ScaledMessageTypography
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(top = 5.dp)
+                .width(2.dp)
+                .heightIn(min = 42.dp)
+                .background(Color(0xFFC9D6D0), RoundedCornerShape(999.dp))
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = typography.pillTitleSize),
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF50645B),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = typography.bodySize,
+                    lineHeight = typography.bodyLineHeight,
+                    fontFamily = typography.fontFamily
+                ),
+                color = Color(0xFF24312B)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ToolTerminalPreviewCard(
+    message: UiMessage,
+    index: Int,
+    expanded: Boolean,
+    typography: ScaledMessageTypography,
+    onToggleExpanded: () -> Unit,
+    onOpenFullDetail: () -> Unit
+) {
+    val fullContent = message.expandedContent?.takeIf { it.isNotBlank() } ?: message.content
+    val preview = TraceNoteExtractor.rawPreview(fullContent).ifBlank { "已完成工具调度" }
+    val body = if (expanded) preview else preview.take(520).trim()
+    val status = toolStatusFromMessage(message)
+    val statusColor = toolStatusColor(status)
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 420.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFF131A18).copy(alpha = 0.96f),
+        contentColor = Color(0xFFE8F0ED),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+        shadowElevation = 8.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TerminalDot(Color(0xFFFF6B5E))
+                    TerminalDot(Color(0xFFFFC857))
+                    TerminalDot(Color(0xFF51D18A))
+                }
+                Text(
+                    text = toolTitle(message, index),
+                    style = MaterialTheme.typography.labelMedium.copy(fontSize = typography.pillTitleSize),
+                    color = Color(0xFFE7EFEB),
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                ToolBadge("工具", Color(0xFF88B7A4), typography.badgeSize)
+                ToolBadge(toolStatusText(status), statusColor, typography.badgeSize)
+            }
+            Text(
+                text = body + if (!expanded && preview.length > body.length) "\n..." else "",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = typography.terminalSize,
+                    lineHeight = typography.terminalLineHeight,
+                    fontFamily = FontFamily.Monospace
+                ),
+                color = Color(0xFFD8E2DE),
+                maxLines = if (expanded) 36 else 8,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = if (expanded) 360.dp else 156.dp)
+                    .verticalScroll(rememberScrollState())
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onToggleExpanded, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
+                    Text(
+                        text = if (expanded) "收起原始片段" else "展开原始片段",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = typography.badgeSize),
+                        color = Color(0xFFB9C9C2)
+                    )
+                }
+                TextButton(onClick = onOpenFullDetail, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
+                    Text(
+                        text = "查看完整输出",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = typography.badgeSize),
+                        color = Color(0xFFD9E9E2)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TerminalDot(color: Color) {
+    Box(
+        modifier = Modifier
+            .size(7.dp)
+            .background(color, CircleShape)
+    )
+}
+
+@Composable
+private fun ToolBadge(text: String, color: Color, fontSize: TextUnit) {
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = color.copy(alpha = 0.16f),
+        contentColor = color,
+        border = BorderStroke(1.dp, color.copy(alpha = 0.12f))
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = fontSize),
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
+        )
+    }
+}
+
+private fun toolCompletionTitle(group: ToolMessageGroup): String {
+    val elapsed = ((group.messages.lastOrNull()?.createdAt ?: group.createdAt) - group.createdAt)
+        .coerceAtLeast(0L) / 1000L
+    return if (elapsed > 0) "思考完成（用时${elapsed}秒）" else "思考完成"
+}
+
+private fun toolTitle(message: UiMessage, index: Int): String {
+    val cleaned = TraceNoteExtractor.cleanTraceText(message.content, 90)
+    return cleaned.substringBefore("\n").substringBefore("·").ifBlank { "工具 ${index + 1}" }
+}
+
+private fun toolShortName(message: UiMessage, index: Int): String {
+    val full = message.expandedContent?.takeIf { it.isNotBlank() } ?: message.content
+    val text = "$full\n${message.content}".lowercase(Locale.US)
+    val known = listOf(
+        "terminal_exec",
+        "attachment_send",
+        "attachment_save_base64",
+        "attachment_import_path",
+        "attachment_import_uri",
+        "attachment_preview",
+        "attachment_read_text",
+        "message",
+        "web_search"
+    ).firstOrNull { it in text }
+    if (known != null) return known
+    val title = toolTitle(message, index)
+        .replace("使用工具", "")
+        .replace("工具结果", "")
+        .trim(' ', '：', ':', '·')
+    return title.substringBefore(" ").substringBefore("\n").take(28).ifBlank { "tool_${index + 1}" }
+}
+
+private fun toolStatusFromMessage(message: UiMessage): String {
+    val text = "${message.content}\n${message.expandedContent.orEmpty()}".lowercase(Locale.US)
+    return when {
+        "pending" in text || "running" in text || "调度中" in text -> "pending"
+        "error" in text || "failed" in text || "exception" in text || "失败" in text -> "error"
+        else -> "ok"
+    }
+}
+
+private fun toolStatusText(status: String): String = when (status) {
+    "error" -> "失败"
+    "pending" -> "调度中"
+    else -> "成功"
+}
+
+private fun toolStatusShort(status: String): String = when (status) {
+    "error" -> "error"
+    "pending" -> "running"
+    else -> "ok"
+}
+
+private fun toolStatusColor(status: String): Color = when (status) {
+    "error" -> Color(0xFFD14343)
+    "pending" -> Color(0xFFE19B31)
+    else -> Color(0xFF39A979)
+}
+
+@Composable
+private fun ToolResultsSheet(
     group: ToolMessageGroup,
     state: ChatUiState,
+    selectedMessageId: Long?,
     expandedToolMessages: MutableMap<Long, Boolean>,
     currentPreviewAudioRef: String?,
     currentPreviewAudioDurationMs: Int,
@@ -4747,81 +5653,135 @@ private fun ToolResultsDialog(
     val messageFontSize = state.themeMessageFontSizeSp.coerceIn(12f, 20f).sp
     val lineMultiplier = state.themeMessageLineHeightMultiplier.coerceIn(1f, 1.7f)
     val lineHeight = (state.themeMessageFontSizeSp.coerceIn(12f, 20f) * lineMultiplier).sp
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Color.White,
-        shape = RoundedCornerShape(20.dp),
-        title = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("工具抽屉", fontWeight = FontWeight.ExtraBold, color = ModernPanelTokens.Text)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 520.dp)
+            .padding(start = 14.dp, end = 14.dp, bottom = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("工具详情", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = Color(0xFF111827))
                 Text(
-                    "${group.messages.size} 个工具结果" + if (group.attachmentCount > 0) " · ${group.attachmentCount} 个附件" else "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = ModernPanelTokens.Muted
+                    "${group.messages.size} 个工具结果" + if (group.attachmentCount > 0) " · ${group.attachmentCount} 个附件" else " · 长按工具名打开",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF6B7280),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
-        },
-        text = {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 420.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(group.messages, key = { it.id }) { message ->
-                    val expanded = expandedToolMessages[message.id] == true
-                    val fullContent = message.expandedContent?.takeIf { it.isNotBlank() } ?: message.content
-                    ModernSectionCard(
-                        title = "工具结果",
-                        subtitle = message.content.ifBlank { "点击展开查看完整输出" }.take(120)
+            TextButton(onClick = onDismiss, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+                Text("关闭", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            }
+        }
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 460.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(group.messages, key = { it.id }) { message ->
+                val expanded = expandedToolMessages[message.id] == true || message.id == selectedMessageId
+                val fullContent = message.expandedContent?.takeIf { it.isNotBlank() } ?: message.content
+                val note = TraceNoteExtractor.extractAssistantNoteFull(fullContent)
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    color = if (message.id == selectedMessageId) Color.White else Color(0xFFFCFDFF),
+                    contentColor = Color(0xFF111827),
+                    border = BorderStroke(1.dp, if (message.id == selectedMessageId) Color(0xFFC9D8FF) else Color(0xFFE8EDF5)),
+                    shadowElevation = if (message.id == selectedMessageId) 7.dp else 2.dp
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        ModernSecondaryButton(
-                            text = if (expanded) "收起内容" else "展开完整内容",
-                            onClick = { expandedToolMessages[message.id] = !expanded },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        if (expanded) {
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = ModernPanelTokens.CardSoft,
-                                border = BorderStroke(1.dp, ModernPanelTokens.Border)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                toolShortName(message, group.messages.indexOf(message)),
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            ToolBadge(toolStatusText(toolStatusFromMessage(message)), toolStatusColor(toolStatusFromMessage(message)), (state.themeMessageFontSizeSp - 3f).coerceIn(9f, 14f).sp)
+                            TextButton(
+                                onClick = { expandedToolMessages[message.id] = !expandedToolMessages.getOrDefault(message.id, false) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                             ) {
-                                Box(Modifier.padding(12.dp)) {
-                                    MarkdownText(
-                                        markdown = fullContent,
-                                        textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                            fontSize = messageFontSize,
-                                            lineHeight = lineHeight,
-                                            fontFamily = themeFontFamily
-                                        ),
-                                        inlineCodeBackground = Color.White.copy(alpha = 0.78f),
-                                        quoteBackground = Color.White.copy(alpha = 0.62f),
-                                        codeBlockBackground = Color(0xFFF5F7FB),
-                                        contentColor = ModernPanelTokens.Text,
-                                        lineHeightMultiplier = lineMultiplier,
-                                        typeface = customTypeface
+                                Text(if (expanded) "收起" else "展开", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        if (!note.isNullOrBlank()) {
+                            ToolNoteBlock(
+                                title = "note / think",
+                                body = note,
+                                typography = scaledMessageTypography(state)
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color(0xFF111A18),
+                            contentColor = Color(0xFFE8F0ED),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+                        )
+                        {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = if (expanded) 340.dp else 130.dp)
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(10.dp)
+                            ) {
+                                MarkdownText(
+                                    markdown = if (expanded) fullContent else TraceNoteExtractor.rawPreview(fullContent),
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                        fontSize = if (expanded) messageFontSize else (state.themeMessageFontSizeSp - 1f).coerceIn(11f, 17f).sp,
+                                        lineHeight = lineHeight,
+                                        fontFamily = if (expanded) themeFontFamily else FontFamily.Monospace
+                                    ),
+                                    inlineCodeBackground = Color.White.copy(alpha = 0.10f),
+                                    quoteBackground = Color.White.copy(alpha = 0.08f),
+                                    codeBlockBackground = Color.Black.copy(alpha = 0.24f),
+                                    contentColor = Color(0xFFE8F0ED),
+                                    lineHeightMultiplier = lineMultiplier,
+                                    typeface = customTypeface
+                                )
+                            }
+                        }
+                        if (message.attachments.isNotEmpty()) {
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = Color(0xFFF6F8FB),
+                                border = BorderStroke(1.dp, Color(0xFFE6EAF1))
+                            ) {
+                                Box(Modifier.padding(8.dp)) {
+                                    MediaAttachmentList(
+                                        attachments = message.attachments,
+                                        currentPreviewAudioRef = currentPreviewAudioRef,
+                                        currentPreviewAudioDurationMs = currentPreviewAudioDurationMs,
+                                        currentPreviewAudioPositionMs = currentPreviewAudioPositionMs,
+                                        onOpenAttachment = onOpenAttachment,
+                                        onToggleAudioPreview = onToggleAudioPreview
                                     )
                                 }
                             }
                         }
-                        if (message.attachments.isNotEmpty()) {
-                            MediaAttachmentList(
-                                attachments = message.attachments,
-                                currentPreviewAudioRef = currentPreviewAudioRef,
-                                currentPreviewAudioDurationMs = currentPreviewAudioDurationMs,
-                                currentPreviewAudioPositionMs = currentPreviewAudioPositionMs,
-                                onOpenAttachment = onOpenAttachment,
-                                onToggleAudioPreview = onToggleAudioPreview
-                            )
-                        }
                     }
                 }
             }
-        },
-        confirmButton = {
-            ModernPrimaryButton(text = "关闭", onClick = onDismiss)
         }
-    )
+    }
 }
 
 @Composable
@@ -4832,14 +5792,25 @@ private fun ThemedMessageBubble(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    if (style == UiBubbleStyle.None) {
+        Box(
+            modifier = modifier
+                .background(Color.Transparent)
+                .padding(horizontal = 2.dp, vertical = 2.dp)
+        ) {
+            content()
+        }
+        return
+    }
     val radius = state.themeBubbleCornerRadius.coerceIn(14f, 24f).dp
     val shape = RoundedCornerShape(radius)
     val shadowAlpha = when (style) {
         UiBubbleStyle.Native -> state.themeBubbleShadowAlpha.coerceIn(0.02f, 0.12f)
-        UiBubbleStyle.Frosted -> state.themeBubbleShadowAlpha.coerceIn(0.04f, 0.22f)
-        UiBubbleStyle.Water -> state.themeBubbleShadowAlpha.coerceIn(0.06f, 0.28f)
+        UiBubbleStyle.Frosted -> state.themeBubbleShadowAlpha.coerceIn(0.03f, 0.14f)
+        UiBubbleStyle.Water -> state.themeBubbleShadowAlpha.coerceIn(0.04f, 0.16f)
+        UiBubbleStyle.None -> 0f
     }
-    val elevation = (shadowAlpha * 18f).dp
+    val elevation = (shadowAlpha * 14f).dp
     Box(
         modifier = modifier
             .shadow(elevation = elevation, shape = shape, clip = false)
@@ -4858,18 +5829,22 @@ private fun ThemedMessageBubble(
 private fun themedBubbleBrush(base: Color, style: UiBubbleStyle, state: ChatUiState): Brush {
     return when (style) {
         UiBubbleStyle.Native -> Brush.linearGradient(listOf(base, base))
+        UiBubbleStyle.None -> Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
         UiBubbleStyle.Frosted -> Brush.linearGradient(
             listOf(
-                base.copy(alpha = (base.alpha + 0.10f).coerceAtMost(0.96f)),
-                base.copy(alpha = (base.alpha * 0.92f).coerceIn(0.28f, 0.92f))
-            )
+                Color.White.copy(alpha = 0.18f * state.themeBubbleGlassStrength.coerceIn(0f, 1f)),
+                base.copy(alpha = (base.alpha + 0.04f).coerceAtMost(0.96f)),
+                base.copy(alpha = (base.alpha * 0.96f).coerceIn(0.52f, 0.94f))
+            ),
+            start = Offset.Zero,
+            end = Offset(180f, 220f)
         )
         UiBubbleStyle.Water -> Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.24f * state.themeBubbleGlassStrength.coerceIn(0f, 1f)),
-                base.copy(alpha = (base.alpha + 0.08f).coerceAtMost(0.86f)),
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.08f * state.themeBubbleGlassStrength.coerceIn(0f, 1f)),
-                base.copy(alpha = (base.alpha * 0.68f).coerceIn(0.22f, 0.78f))
+                Color.White.copy(alpha = 0.30f * state.themeBubbleGlassStrength.coerceIn(0f, 1f)),
+                base.copy(alpha = (base.alpha + 0.05f).coerceAtMost(0.88f)),
+                base.copy(alpha = (base.alpha * 0.86f).coerceIn(0.44f, 0.82f)),
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.025f * state.themeBubbleGlassStrength.coerceIn(0f, 1f))
             ),
             start = Offset.Zero,
             end = Offset(260f, 220f)
@@ -4883,52 +5858,44 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBubbleGlass(
     base: Color
 ) {
     val highlight = state.themeBubbleHighlightAlpha.coerceIn(0f, 1f)
-    if (style == UiBubbleStyle.Native || highlight <= 0.01f) return
-    val strokeWidth = 1.2.dp.toPx()
+    if (style == UiBubbleStyle.Native || style == UiBubbleStyle.None || highlight <= 0.01f) return
+    val corner = state.themeBubbleCornerRadius.dp.toPx()
+    val strokeWidth = if (style == UiBubbleStyle.Water) 1.35.dp.toPx() else 1.dp.toPx()
     drawRoundRect(
         brush = Brush.linearGradient(
             listOf(
-                Color.White.copy(alpha = 0.32f * highlight),
-                Color.White.copy(alpha = 0.04f * highlight)
+                Color.White.copy(alpha = if (style == UiBubbleStyle.Water) 0.42f * highlight else 0.24f * highlight),
+                Color.White.copy(alpha = 0.06f * highlight),
+                Color(0xFFB9C8D8).copy(alpha = if (style == UiBubbleStyle.Water) 0.12f * highlight else 0.06f * highlight)
             )
         ),
-        cornerRadius = CornerRadius(state.themeBubbleCornerRadius.dp.toPx(), state.themeBubbleCornerRadius.dp.toPx()),
+        cornerRadius = CornerRadius(corner, corner),
         style = Stroke(width = strokeWidth)
     )
     drawRoundRect(
-        color = Color.White.copy(alpha = if (style == UiBubbleStyle.Water) 0.24f * highlight else 0.16f * highlight),
-        topLeft = Offset(size.width * 0.08f, size.height * 0.08f),
-        size = Size(size.width * 0.54f, max(3f, size.height * 0.08f)),
-        cornerRadius = CornerRadius(999f, 999f)
+        brush = Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = if (style == UiBubbleStyle.Water) 0.18f * highlight else 0.12f * highlight),
+                Color.Transparent
+            )
+        ),
+        size = Size(size.width, size.height * 0.42f),
+        cornerRadius = CornerRadius(corner, corner)
     )
     if (style == UiBubbleStyle.Water) {
-        drawCircle(
-            color = Color.White.copy(alpha = 0.10f * highlight),
-            radius = size.minDimension * 0.42f,
-            center = Offset(size.width * 0.88f, size.height * 0.12f)
-        )
-        drawCircle(
-            color = Color.Cyan.copy(alpha = 0.06f * highlight),
-            radius = size.minDimension * 0.34f,
-            center = Offset(size.width * 0.08f, size.height * 0.92f)
-        )
+        val inset = 2.dp.toPx()
         drawRoundRect(
-            brush = Brush.radialGradient(
-                listOf(
-                        Color.White.copy(alpha = 0.22f * highlight),
-                        base.copy(alpha = 0f)
-                    ),
-                    center = Offset(size.width * 0.16f, size.height * 0.18f),
-                    radius = size.width * 0.75f,
-                    tileMode = TileMode.Clamp
-                ),
-            cornerRadius = CornerRadius(state.themeBubbleCornerRadius.dp.toPx(), state.themeBubbleCornerRadius.dp.toPx())
+            color = Color.White.copy(alpha = 0.20f * highlight),
+            topLeft = Offset(inset, inset),
+            size = Size(max(0f, size.width - inset * 2), max(0f, size.height - inset * 2)),
+            cornerRadius = CornerRadius(max(0f, corner - inset), max(0f, corner - inset)),
+            style = Stroke(width = 0.8.dp.toPx())
         )
         drawLine(
-            color = Color.White.copy(alpha = 0.22f * highlight),
-            start = Offset(size.width * 0.12f, size.height - 1.5.dp.toPx()),
-            end = Offset(size.width * 0.88f, size.height - 1.5.dp.toPx()),
-            strokeWidth = 1.dp.toPx()
+            color = Color.White.copy(alpha = 0.18f * highlight),
+            start = Offset(size.width * 0.14f, 1.4.dp.toPx()),
+            end = Offset(size.width * 0.86f, 1.4.dp.toPx()),
+            strokeWidth = 0.8.dp.toPx()
         )
     }
 }
@@ -4936,13 +5903,15 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBubbleGlass(
 private fun themedBubbleBorder(state: ChatUiState, style: UiBubbleStyle): BorderStroke {
     val alpha = when (style) {
         UiBubbleStyle.Native -> state.themeBubbleBorderAlpha.coerceIn(0.16f, 0.42f)
-        UiBubbleStyle.Frosted -> state.themeBubbleBorderAlpha.coerceIn(0.22f, 0.78f)
-        UiBubbleStyle.Water -> state.themeBubbleBorderAlpha.coerceIn(0.30f, 0.92f)
+        UiBubbleStyle.Frosted -> state.themeBubbleBorderAlpha.coerceIn(0.18f, 0.52f)
+        UiBubbleStyle.Water -> state.themeBubbleBorderAlpha.coerceIn(0.24f, 0.58f)
+        UiBubbleStyle.None -> 0f
     }
     val edge = when (style) {
         UiBubbleStyle.Native -> Color(0xFFDDE5F0)
-        UiBubbleStyle.Frosted -> Color(0xFFE5ECF6)
-        UiBubbleStyle.Water -> Color.White
+        UiBubbleStyle.Frosted -> Color(0xFFDDE7F3)
+        UiBubbleStyle.Water -> Color(0xFFC7D6E7)
+        UiBubbleStyle.None -> Color.Transparent
     }
     return BorderStroke(1.dp, edge.copy(alpha = alpha))
 }
@@ -5015,6 +5984,7 @@ private fun themedBubbleContainer(base: Color, style: UiBubbleStyle, state: Chat
         UiBubbleStyle.Native -> base.copy(alpha = opacity.coerceIn(0.72f, 1f))
         UiBubbleStyle.Frosted -> base.copy(alpha = (opacity * (0.72f + glass * 0.18f)).coerceIn(0.38f, 0.92f))
         UiBubbleStyle.Water -> base.copy(alpha = (opacity * (0.55f + glass * 0.16f)).coerceIn(0.30f, 0.82f))
+        UiBubbleStyle.None -> Color.Transparent
     }
 }
 
@@ -5034,6 +6004,7 @@ private fun adaptiveBackgroundScrim(base: Color, imageOpacity: Float, glass: Flo
         UiBubbleStyle.Native -> 0.02f
         UiBubbleStyle.Frosted -> 0.08f
         UiBubbleStyle.Water -> 0.12f
+        UiBubbleStyle.None -> 0.02f
     }
     val alpha = (glass * 0.62f + imageOpacity * 0.22f + styleBoost).coerceIn(0.08f, 0.72f)
     return base.copy(alpha = alpha)

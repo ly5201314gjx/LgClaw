@@ -150,15 +150,17 @@ internal class OpenAiCompatibleProvider(
             }
 
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
-                if (data == "[DONE]") {
+                val payload = normalizeProviderJsonPayload(data)
+                if (payload == "[DONE]") {
                     terminalEmitted = true
                     trySend(LlmStreamEvent.Final(accumulator.toFinalResponse()))
                     eventSource.cancel()
                     close()
                     return
                 }
+                if (payload.isBlank()) return
                 try {
-                    val chunk = json.decodeFromString(ChatCompletionChunk.serializer(), data)
+                    val chunk = json.decodeFromString(ChatCompletionChunk.serializer(), payload)
                     accumulator.appendChunk(chunk)
                     val delta = chunk.choices.firstOrNull()?.delta?.content
                     if (!delta.isNullOrEmpty()) {
@@ -329,7 +331,11 @@ internal class OpenAiCompatibleProvider(
     )
 
     private fun parseNonStreamBody(body: String): LlmResponse {
-        val parsed = json.decodeFromString(ChatCompletionsResponse.serializer(), body)
+        val normalized = normalizeProviderJsonPayload(body)
+        if (normalized == "[DONE]" || normalized.isBlank()) {
+            throw IOException("$providerLabel response did not contain a usable JSON body")
+        }
+        val parsed = json.decodeFromString(ChatCompletionsResponse.serializer(), normalized)
         val message = parsed.choices.firstOrNull()?.message
             ?: throw IOException("$providerLabel response missing choices")
 
@@ -396,6 +402,22 @@ internal class OpenAiCompatibleProvider(
         private const val CACHE_CONTROL_TYPE_EPHEMERAL = "ephemeral"
         private val CACHE_HINT_RETRY_HTTP_CODES = setOf(400, 404, 415, 422)
     }
+}
+
+private fun normalizeProviderJsonPayload(raw: String): String {
+    val trimmed = raw.trim()
+    if (!trimmed.startsWith("data:")) return trimmed
+    val payloadLines = trimmed
+        .lineSequence()
+        .map { it.trim() }
+        .filter { it.startsWith("data:") }
+        .map { it.removePrefix("data:").trim() }
+        .filter { it.isNotBlank() }
+        .toList()
+    if (payloadLines.isEmpty()) return trimmed.removePrefix("data:").trim()
+    payloadLines.firstOrNull { it == "[DONE]" }?.let { return it }
+    return payloadLines.firstOrNull { it.startsWith("{") || it.startsWith("[") }
+        ?: payloadLines.joinToString("\n")
 }
 
 private fun ChatCompletionsResponse.Usage.toLlmUsage(): LlmUsage {
