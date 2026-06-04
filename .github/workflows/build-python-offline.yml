@@ -1,0 +1,76 @@
+name: Build Offline Python Bundle
+
+# Refreshes the bundled wheels/ and site-packages.zip used by the
+# Android terminal. Runs nightly and on demand. The build artifact
+# is published to the workflow run so maintainers can attach it to
+# a release manually if needed.
+on:
+  workflow_dispatch:
+  schedule:
+    # Nightly at 02:00 UTC; cheap because uv caches the index.
+    - cron: "0 2 * * *"
+  push:
+    paths:
+      - "scripts/python_offline_specs.txt"
+      - "scripts/build_python_wheels.py"
+      - "scripts/build_site_packages_zip.py"
+      - "scripts/build_python_offline.sh"
+
+permissions:
+  contents: read
+
+jobs:
+  build-bundle:
+    name: Resolve wheels + assemble site-packages.zip
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Cache PyPI index
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            ~/.local/share/uv
+          key: uv-${{ runner.os }}-${{ hashFiles('scripts/python_offline_specs.txt') }}
+          restore-keys: |
+            uv-${{ runner.os }}-
+
+      - name: Build wheels
+        run: |
+          chmod +x scripts/build_python_offline.sh
+          scripts/build_python_offline.sh --with-deps
+
+      - name: Smoke-test the zip
+        run: |
+          python3 -c "
+          import zipfile, sys
+          with zipfile.ZipFile('app/src/main/assets/terminal/arm64-v8a/site-packages.zip') as zf:
+              bad = zf.testzip()
+              if bad:
+                  sys.exit('corrupt entry: ' + bad)
+              print('verified', len(zf.namelist()), 'entries')
+          "
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: lgclaw-python-offline-bundle
+          path: |
+            app/src/main/assets/terminal/arm64-v8a/wheels/
+            app/src/main/assets/terminal/arm64-v8a/site-packages.zip
+          if-no-files-found: error
+          retention-days: 14

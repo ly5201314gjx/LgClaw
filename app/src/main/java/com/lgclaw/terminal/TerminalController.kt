@@ -1,7 +1,8 @@
-package com.lgclaw.terminal
+﻿package com.lgclaw.terminal
 
 import android.content.Context
 import android.provider.Settings
+import android.util.Log
 import com.lgclaw.config.AppSession
 import com.lgclaw.config.AppStoragePaths
 import kotlinx.coroutines.CoroutineScope
@@ -12,6 +13,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -55,6 +58,7 @@ object TerminalController {
                 refreshToolchainStatus(prepareIfMissing = false)
                 refreshOverlayPermission(appContext)
                 refreshWorkspaces()
+                bootstrapPythonPackages(appContext)
             }.onFailure { error ->
                 _state.update {
                     it.copy(lastError = "终端初始化失败：${error.message ?: error.javaClass.simpleName}")
@@ -139,6 +143,91 @@ object TerminalController {
         return _state.value.terminalModeSessions.contains(normalizeSessionId(sessionId))
     }
 
+
+    /**
+     * Extract bundled wheels + site-packages, write pip.conf, and report
+     * the result into the runtime state. Idempotent; safe to call on
+     * every app launch. Runs on Dispatchers.IO and never blocks chat UI.
+     */
+    private suspend fun bootstrapPythonPackages(appContext: Context, force: Boolean = false) = coroutineScope {
+        val manager = TerminalPackageManager(appContext)
+        val report = runCatching { manager.bootstrap(force) }.getOrElse {
+            TerminalPackageManager.BootstrapReport(
+                issues = listOf("bootstrap crashed: " + it.javaClass.simpleName + ": " + (it.message ?: ""))
+            )
+        }
+        if (report.wheelsCached > 0 || report.sitePackagesExtracted || report.pycFilesCompiled > 0) {
+            Log.i(
+                "LGClaw.Terminal",
+                "PackageManager bootstrap: " +
+                    "wheels=" + report.wheelsCached +
+                    " site-packages=" + report.sitePackagesExtracted +
+                    " pyc=" + report.pycFilesCompiled +
+                    " python=" + report.pythonVersion +
+                    " pip=" + report.pipVersion +
+                    " uv=" + report.uvVersion
+            )
+        }
+        if (report.issues.isNotEmpty()) {
+            Log.w("LGClaw.Terminal", "PackageManager issues: " + report.issues.joinToString("; "))
+            _state.update { current ->
+                current.copy(lastError = report.issues.joinToString("; ").ifBlank { current.lastError })
+            }
+        }
+    }
+
+    /**
+     * Public hook: install a Python package using the local wheel cache
+     * and binary-only pip config. Returns a structured result the UI
+     * shows inline.
+     */
+    suspend fun installPythonPackage(spec: String): TerminalPackageManager.InstallResult {
+        val appContext = requireContext()
+        return TerminalPackageManager(appContext).installPackage(spec)
+    }
+
+    /**
+     * Public hook: heuristic check whether a Python package is already
+     * present in the bundled site-packages directory.
+     */
+    fun isPythonPackageInstalled(name: String): Boolean {
+        val appContext = context ?: return false
+        return TerminalPackageManager(appContext).isPackageInstalled(name)
+    }
+
+    /** Public hook: human-readable description of the bootstrap state. */
+    suspend fun describePackageManager(): String {
+        val appContext = requireContext()
+        return TerminalPackageManager(appContext).describe()
+    }
+
+    /**
+     * Public hook: re-run the package-manager bootstrap. With
+     * `force = true` we re-extract site-packages and recompile .pyc
+     * files; useful when the wheels cache is updated in a new APK.
+     */
+    suspend fun rebakePythonOfflineEnvironment(force: Boolean): TerminalPackageManager.BootstrapReport {
+        val appContext = requireContext()
+        return withContext(Dispatchers.IO) {
+            TerminalPackageManager(appContext).bootstrap(force)
+        }
+    }
+
+    /** Public hook: list every wheel-installed Python distribution. */
+    suspend fun listInstalledPythonPackages(): List<String> {
+        val appContext = requireContext()
+        return withContext(Dispatchers.IO) {
+            TerminalPackageManager(appContext).listInstalledPackages()
+        }
+    }
+
+    /** Public hook: cheap import probe that survives ABI mismatches. */
+    suspend fun probePythonPackage(spec: String): String {
+        val appContext = requireContext()
+        return withContext(Dispatchers.IO) {
+            TerminalPackageManager(appContext).probeImport(spec)
+        }
+    }
     fun refreshWorkspaces() {
         val appContext = context ?: return
         val manager = TerminalToolchainManager(appContext)

@@ -61,8 +61,8 @@ class TerminalToolchainManager(
             missingExecutables = missing,
             toolchainRoot = termuxPrefix.absolutePath,
             lastError = when {
-                shell.isBlank() -> "没有找到可用的 shell"
-                missingBootstrap.isNotEmpty() -> "基础终端组件缺失：${missingBootstrap.joinToString("、")}"
+                shell.isBlank() -> "????????????????????? shell"
+                missingBootstrap.isNotEmpty() -> "???????????????????????????${missingBootstrap.joinToString("???")}"
                 else -> ""
             }
         )
@@ -106,7 +106,20 @@ class TerminalToolchainManager(
             "SSL_CERT_FILE" to File(prefix, "etc/tls/cert.pem").absolutePath,
             "SSL_CERT_DIR" to File(prefix, "etc/tls/certs").absolutePath,
             "LGCLAW_TERMINAL" to "1",
-            "LGCLAW_WORKSPACE" to workspace.absolutePath
+            "LGCLAW_WORKSPACE" to workspace.absolutePath,
+            // Python performance knobs. These are read by CPython at
+            // start and cut cold-start time for matplotlib/numpy/pandas
+            // noticeably because no .pyc files are written on first run.
+            "PYTHONDONTWRITEBYTECODE" to "1",
+            "PYTHONOPTIMIZE" to "1",
+            "PYTHONIOENCODING" to "utf-8",
+            "PYTHONUTF8" to "1",
+            "PYTHONUNBUFFERED" to "1",
+            "PYTHONNOUSERSITE" to "1",
+            // uv reads UV_CONFIG_FILE for its TOML; point it at the
+            // bundle so offline wheels are picked up without flags.
+            "UV_CONFIG_FILE" to File(prefix, "etc/uv/uv.toml").absolutePath,
+            "PIP_CONFIG_FILE" to File(prefix, "etc/pip.conf").absolutePath
         )
     }
 
@@ -359,7 +372,7 @@ class TerminalToolchainManager(
             export DPKG_COLORS=never
             export LGCLAW_OFFLINE_DEBS="$debPath"
             cd "${'$'}PREFIX"
-            echo "正在安装 LGClaw 内置离线开发环境..."
+            echo "???????????? LGClaw ????????????????????????..."
             dpkg --force-confnew --force-overwrite -i "${'$'}LGCLAW_OFFLINE_DEBS"/*.deb || {
               dpkg --configure -a || true
               dpkg --force-confnew --force-overwrite -i "${'$'}LGCLAW_OFFLINE_DEBS"/*.deb
@@ -401,7 +414,7 @@ class TerminalToolchainManager(
     }
 
     private fun symlinkSeparator(line: String): String? {
-        return listOf("←", "→", "->", "=>").firstOrNull { line.contains(it) }
+        return listOf("???", "???", "->", "=>").firstOrNull { line.contains(it) }
     }
 
     private fun ensureCriticalEntrypoints(target: File) {

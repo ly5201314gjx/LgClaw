@@ -1,0 +1,60 @@
+# LGClaw offline Python packages
+#
+# Two profiles, choose with --profile= flag in build_python_offline.py.
+#
+# The default profile is `core` (~30 MB compressed). It covers the
+# libraries the agent typically needs without bloating the APK:
+# requests (HTTP), matplotlib + pyecharts (plotting), numpy + pillow
+# (the plotting backends), pyyaml (config), and their mandatory deps.
+#
+# Anything not in this list is still installable at runtime via
+# `terminal_python_install <name>`, which falls back to PyPI when the
+# wheels cache is empty. The cache directory is regenerated on demand
+# from PyPI by the agent; we no longer ship every wheel by default.
+
+[core]
+# HTTP / data interchange
+requests
+urllib3
+certifi
+charset-normalizer
+idna
+pyyaml
+
+# Plotting and visualization
+matplotlib
+pyecharts
+
+# Numeric / image stack
+numpy
+pillow
+
+# Mandatory matplotlib/numpy deps
+kiwisolver
+contourpy
+fonttools
+pyparsing
+cycler
+python-dateutil
+six
+packaging
+
+[full]
+# Everything in core, plus:
+pandas
+scipy
+lxml
+cryptography
+pyarrow
+sympy
+mpmath
+pillow-deps
+openpyxl
+et-xmlfile
+tzdata
+pytz
+tabulate
+tqdm
+colorama
+jinja2
+markupsafe
