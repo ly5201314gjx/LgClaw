@@ -200,6 +200,7 @@ private class TerminalStatusTool(
                 appendLine("shell: ${state.shellPath.ifBlank { "not found" }}")
                 appendLine("installed: ${state.installedExecutables.joinToString(", ").ifBlank { "none" }}")
                 appendLine("missing: ${state.missingExecutables.joinToString(", ").ifBlank { "none" }}")
+                appendLine("missing libraries: ${state.missingLibraries.joinToString(", ").ifBlank { "none" }}")
                 appendLine("overlay permission: ${if (state.overlayPermissionGranted) "granted" else "not granted"}")
                 appendLine("recent output:")
                 state.recentOutput.takeLast(12).forEach { line ->

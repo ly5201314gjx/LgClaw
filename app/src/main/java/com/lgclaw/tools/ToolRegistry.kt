@@ -74,7 +74,6 @@ class ToolRegistry(
         }
 
         return try {
-            Log.d(TAG, "Executing tool ${tool.name}, callId=${call.id}")
             val parsedArgs = argumentsValidator.parseArgumentsObject(call.argumentsJson)
             if (parsedArgs == null) {
                 return ToolResult(
@@ -99,6 +98,33 @@ class ToolRegistry(
             }
 
             effectiveTimeoutMs = (tool as? TimedTool)?.timeoutMs?.takeIf { it > 0 } ?: defaultTimeoutMs
+            if (LongRunningToolPolicy.shouldRunInBackground(tool.name, effectiveTimeoutMs)) {
+                val job = ToolJobStore.start(
+                    toolName = tool.name,
+                    argumentsJson = parsedArgs.toString(),
+                    timeoutMs = effectiveTimeoutMs,
+                    runner = { tool.run(parsedArgs.toString()) }
+                )
+                return ToolResult(
+                    toolCallId = call.id,
+                    content = buildString {
+                        appendLine("Background tool job started: ${job.id}")
+                        appendLine("tool: ${tool.name}")
+                        appendLine("status: running")
+                        appendLine("This tool can take several minutes. Continue the conversation without waiting, or call tool_job_status with job_id=${job.id} to retrieve progress/result.")
+                    }.trim(),
+                    isError = false,
+                    metadata = buildJsonObject {
+                        put("job_id", job.id)
+                        put("status", job.status.wireName)
+                        put("tool_name", tool.name)
+                        put("background", true)
+                        put("timeout_ms", effectiveTimeoutMs)
+                        put("next_tool", "tool_job_status")
+                    }
+                )
+            }
+            Log.d(TAG, "Executing tool ${tool.name}, callId=${call.id}")
             // Use normalized JSON object string to avoid provider quirks where arguments is a JSON string.
             val raw = withTimeout(effectiveTimeoutMs) { tool.run(parsedArgs.toString()) }
             if (raw.isError && !raw.content.contains(errorHint)) {

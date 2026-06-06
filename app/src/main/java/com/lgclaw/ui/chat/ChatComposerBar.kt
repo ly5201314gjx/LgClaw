@@ -25,6 +25,8 @@ import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.DropdownMenu
@@ -55,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lgclaw.ui.theme.ChatSurface
 import coil.compose.AsyncImage
 import java.io.File
 
@@ -91,6 +94,18 @@ internal fun ChatComposerBar(
             tinyTextSize = tinyTextSize,
             onPlanModeChange = onPlanModeChange
         )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 0.dp),
+            horizontalArrangement = Arrangement.Start
+        ) {
+            ModeSelectorPill(
+                state = state,
+                onPlanModeChange = onPlanModeChange
+            )
+        }
+
 
         if (state.input.contains("@")) {
             CommandSuggestionStrip(
@@ -434,6 +449,91 @@ private fun CommandSuggestionStrip(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun ModeSelectorPill(
+    state: ChatUiState,
+    onPlanModeChange: (UiPlanModeLevel) -> Unit
+) {
+    val v = ChatSurface.visuals
+    var expanded by remember { mutableStateOf(false) }
+    val currentLabel = when (state.planModeLevel) {
+        UiPlanModeLevel.Off -> "机关模式"
+        UiPlanModeLevel.Quick -> "机关模式 · 速"
+        UiPlanModeLevel.Standard -> "机关模式 · 标准"
+        UiPlanModeLevel.Deep -> "机关模式 · 深"
+        UiPlanModeLevel.Codex -> "机关模式 · Codex"
+    }
+    val accent = if (state.planModeLevel == UiPlanModeLevel.Off) v.muted else v.accent
+    val bg = if (state.planModeLevel == UiPlanModeLevel.Off) v.hairline.copy(alpha = 0.55f) else v.accentSoft
+    Box {
+        Surface(
+            modifier = Modifier
+                .heightIn(min = 28.dp)
+                .clickable { expanded = true }
+                .padding(horizontal = 2.dp),
+            shape = RoundedCornerShape(v.rPill),
+            color = bg,
+            contentColor = accent,
+            border = BorderStroke(1.dp, accent.copy(alpha = 0.18f)),
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Tune,
+                    contentDescription = null,
+                    modifier = Modifier.size(13.dp),
+                    tint = accent
+                )
+                Text(
+                    text = currentLabel,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = (v.fontMicro.value + 0.5f).sp
+                    ),
+                    fontWeight = FontWeight.Medium,
+                    color = accent
+                )
+                Icon(
+                    imageVector = Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = null,
+                    modifier = Modifier.size(13.dp),
+                    tint = accent
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            listOf(
+                UiPlanModeLevel.Off to "关闭",
+                UiPlanModeLevel.Quick to "速",
+                UiPlanModeLevel.Standard to "标准",
+                UiPlanModeLevel.Deep to "深",
+                UiPlanModeLevel.Codex to "Codex"
+            ).forEach { (level, label) ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = "机关模式  " + label,
+                            color = if (level == state.planModeLevel) v.accent else v.ink
+                        )
+                    },
+                    onClick = {
+                        onPlanModeChange(level)
+                        expanded = false
+                    }
                 )
             }
         }

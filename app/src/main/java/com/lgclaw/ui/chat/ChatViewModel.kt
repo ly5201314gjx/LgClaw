@@ -1,4 +1,4 @@
-﻿package com.lgclaw.ui
+package com.lgclaw.ui
 
 import android.app.Application
 import android.app.AlarmManager
@@ -373,6 +373,66 @@ class ChatViewModel(
         }
     }
 
+    fun restoreMessages(snapshots: List<MessageSnapshot>) {
+        if (snapshots.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                snapshots.forEach { snap ->
+                    val entity = com.lgclaw.storage.entities.MessageEntity(
+                        id = snap.id,
+                        sessionId = snap.sessionId,
+                        role = snap.role,
+                        content = snap.content,
+                        createdAt = snap.createdAt,
+                        toolCallJson = snap.toolCallJson,
+                        toolResultJson = snap.toolResultJson
+                    )
+                    messageRepository.restoreMessage(entity)
+                }
+                sessionRepository.touch(currentSessionId)
+            }.onSuccess {
+                showSettingsInfo("已恢复 ${snapshots.size} 条消息")
+            }.onFailure { error ->
+                showSettingsInfo("恢复消息失败：${error.message ?: error.javaClass.simpleName}")
+            }
+        }
+    }
+
+    /**
+     * Capture snapshots of the given message ids in the current session so the
+     * UI layer can offer a "撤销删除" affordance. Returns the snapshots in the
+     * same order as the underlying DAO query. Snapshots are not removed from
+     * storage; the caller is expected to invoke [deleteMessages] right after.
+     */
+    suspend fun captureMessageSnapshots(messageIds: List<Long>): List<MessageSnapshot> {
+        val ids = messageIds.distinct().filter { it > 0L }.toSet()
+        if (ids.isEmpty()) return emptyList()
+        return messageRepository.getMessages(currentSessionId)
+            .filter { it.id in ids }
+            .map { entity ->
+                MessageSnapshot(
+                    id = entity.id,
+                    sessionId = entity.sessionId,
+                    role = entity.role,
+                    content = entity.content,
+                    createdAt = entity.createdAt,
+                    toolCallJson = entity.toolCallJson,
+                    toolResultJson = entity.toolResultJson
+                )
+            }
+    }
+
+data class MessageSnapshot(
+    val id: Long,
+    val sessionId: String,
+    val role: String,
+    val content: String,
+    val createdAt: Long,
+    val toolCallJson: String? = null,
+    val toolResultJson: String? = null
+)
+
+
     fun polishMessageToInput(content: String) {
         val source = content.trim()
         if (source.isBlank()) return
@@ -644,6 +704,32 @@ class ChatViewModel(
             showSettingsInfo("取消终端任务失败：${error.message ?: error.javaClass.simpleName}")
         }
     }
+    fun executeTerminalCommand(command: String) {
+        val clean = command.trim()
+        if (clean.isBlank()) return
+        val runtime = terminalController.state.value
+        val sid = currentSessionId.trim().ifBlank { AppSession.LOCAL_SESSION_ID }
+        if (sid !in runtime.terminalModeSessions) {
+            toggleTerminalMode()
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val result = terminalController.runCommand(
+                    TerminalExecutionRequest(
+                        sessionId = sid,
+                        command = clean,
+                        timeoutMs = 60_000L,
+                        label = "user"
+                    )
+                )
+                _uiState.update { it.copy(terminalRuntime = it.terminalRuntime.copy(recentOutput = (it.terminalRuntime.recentOutput + UiTerminalLine(stream = "user", text = "$ " + clean, createdAt = System.currentTimeMillis()) + UiTerminalLine(stream = "stdout", text = result.output, createdAt = System.currentTimeMillis())).takeLast(50))) }
+                showSettingsInfo(if (result.exitCode == 0) "命令执行完成" else "命令退出码 ${result.exitCode}")
+            }.onFailure { error ->
+                showSettingsInfo("命令执行失败：${error.message ?: error.javaClass.simpleName}")
+            }
+        }
+    }
+
 
     fun installTerminalDeveloperTools() {
         runCatching {
@@ -1484,6 +1570,38 @@ class ChatViewModel(
                 .onFailure { showSettingsInfo("角色卡保存失败：${it.message ?: it.javaClass.simpleName}") }
         }
     }
+    fun updateRoleCard(
+        id: String,
+        name: String,
+        avatarSymbol: String,
+        description: String,
+        persona: String,
+        speakingStyle: String,
+        boundaries: String,
+        scenario: String,
+        exampleDialog: String
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val card = roleCardRepository.createOrUpdate(
+                    id = id,
+                    name = name,
+                    avatarSymbol = avatarSymbol,
+                    description = description,
+                    persona = persona,
+                    speakingStyle = speakingStyle,
+                    boundaries = boundaries,
+                    scenario = scenario,
+                    exampleDialog = exampleDialog,
+                    enabled = true
+                )
+                refreshAgentPanelsNow()
+                card
+            }.onSuccess { showSettingsInfo("角色卡已更新：${it.name}") }
+                .onFailure { showSettingsInfo("角色卡更新失败：${it.message ?: it.javaClass.simpleName}") }
+        }
+    }
+
 
     fun setAgentAvatar(agentId: String, presetKey: String, imagePath: String = "", cropJson: String = "") {
         viewModelScope.launch(Dispatchers.IO) {
@@ -5355,7 +5473,7 @@ class ChatViewModel(
         val traces = state.inlineTraces
             .filter { it.sessionId == sid }
             .sortedBy { it.createdAt }
-            .takeLast(24)
+            .takeLast(InlineThoughtProjector.MAX_STORED_STEPS)
         if (traces.isEmpty()) return null
         val anchor = state.activeTraceAnchorMessageId
             ?: visibleMessages.asReversed().firstOrNull { it.role == "user" && it.id > 0L }?.id
@@ -5419,7 +5537,7 @@ class ChatViewModel(
         } else {
             current + trace
         }
-        return next.takeLast(24)
+        return next.takeLast(InlineThoughtProjector.MAX_STORED_STEPS)
     }
 
     private fun currentAgentAvatarFor(agentId: String?, profiles: List<UiAgentProfile>): UiAvatarInfo {
@@ -5489,7 +5607,7 @@ class ChatViewModel(
                     val currentSession = state.currentSessionId.trim()
                     val runtimeTraces = status.inlineTraces
                         .filter { it.sessionId == currentSession }
-                        .takeLast(24)
+                        .takeLast(InlineThoughtProjector.MAX_STORED_STEPS)
                         .mapIndexed { index, trace ->
                             val title = TraceNoteExtractor.cleanTraceText(trace.title, 80).ifBlank { "状态" }
                             val detail = TraceNoteExtractor.displayDetail(trace.title, trace.detail)
@@ -7146,6 +7264,7 @@ private data class EmailCredentialKey(
     val fromAddress: String,
     val autoReplyEnabled: Boolean
 )
+
 
 
 

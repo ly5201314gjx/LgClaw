@@ -76,6 +76,10 @@ class MessageRepository(
         dao.updateMessageContent(messageId, content)
     }
 
+    suspend fun restoreMessage(entity: MessageEntity) = withContext(Dispatchers.IO) {
+        dao.restore(entity)
+    }
+
     suspend fun deleteMessage(messageId: Long) = withContext(Dispatchers.IO) {
         dao.deleteById(messageId)
     }

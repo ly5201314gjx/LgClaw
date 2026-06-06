@@ -54,8 +54,9 @@ class TerminalToolchainManager(
         }.toSet()
         val missing = requiredTools.toSet() - installed
         val missingBootstrap = bootstrapTools.toSet() - installed
+        val health = TerminalRuntimeHealth.repair(termuxPrefix)
         return TerminalToolchainStatus(
-            ready = shell.isNotBlank() && missingBootstrap.isEmpty(),
+            ready = shell.isNotBlank() && missingBootstrap.isEmpty() && health.healthy,
             shellPath = shell,
             installedExecutables = installed,
             missingExecutables = missing,
@@ -63,8 +64,10 @@ class TerminalToolchainManager(
             lastError = when {
                 shell.isBlank() -> "????????????????????? shell"
                 missingBootstrap.isNotEmpty() -> "???????????????????????????${missingBootstrap.joinToString("???")}"
+                !health.healthy -> health.errorMessage
                 else -> ""
-            }
+            },
+            missingLibraries = health.missingLibraries.toSet()
         )
     }
 

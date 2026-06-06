@@ -53,7 +53,8 @@ private fun buildCoreTools(
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
     return mutableListOf<Tool>(
-        MessageTool()
+        MessageTool(),
+        ToolJobStatusTool()
     ).apply {
         addAll(createAndroidDeviceToolSet(context))
         addAll(createAndroidMediaToolSet(context))

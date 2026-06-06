@@ -2,6 +2,7 @@ package com.lgclaw.storage.dao
 
 import androidx.room.Dao
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.lgclaw.storage.entities.MessageEntity
 import kotlinx.coroutines.flow.Flow
@@ -19,6 +20,9 @@ interface MessageDao {
 
     @Insert
     suspend fun insert(message: MessageEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun restore(message: MessageEntity): Long
 
     @Query("UPDATE messages SET content = :content WHERE id = :id")
     suspend fun updateMessageContent(id: Long, content: String)

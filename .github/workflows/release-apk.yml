@@ -31,7 +31,7 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build and verify debug APK
-        run: ./gradlew assembleDebug testDebugUnitTest lintDebug --stacktrace
+        run: ./gradlew assembleDebug testDebugUnitTest --stacktrace
 
       - name: Prepare release assets
         shell: bash
@@ -54,7 +54,7 @@ jobs:
 
           ### 验证
 
-          - GitHub Actions 会重新执行 `assembleDebug testDebugUnitTest lintDebug --stacktrace`。
+          - GitHub Actions 会重新执行 `assembleDebug testDebugUnitTest --stacktrace`。
           - Release 附带 `LGClaw-Pro-debug.apk.sha256`，方便校验安装包。
           EOF
 

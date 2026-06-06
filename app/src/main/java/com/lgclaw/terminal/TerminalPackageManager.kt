@@ -1,4 +1,4 @@
-﻿package com.lgclaw.terminal
+package com.lgclaw.terminal
 
 import android.content.Context
 import com.lgclaw.config.AppStoragePaths
@@ -186,28 +186,12 @@ class TerminalPackageManager(
      * Walks the directory recursively so flat dist-info layouts from
      * newer pip/uv releases do not produce false negatives.
      */
-    fun isPackageInstalled(name: String): Boolean = isPackageInstalled(pythonSitePackages, name)
+    fun isPackageInstalled(name: String): Boolean = Companion.isPackageInstalled(pythonSitePackages, name)
 
     /**
      * File-system level check; pure function so the unit test can
      * exercise it against a temporary directory.
      */
-    fun isPackageInstalled(sitePackages: File, name: String): Boolean {
-        if (!sitePackages.exists()) return false
-        sitePackages.listFiles().orEmpty()
-            .filter { it.isFile && it.name.endsWith(".dist-info") }
-            .forEach { info ->
-                if (PythonPackageIndex.matchesDistInfo(info.name, name)) return true
-            }
-        val needle = PythonPackageIndex.normalize(name)
-        val candidates = listOf(
-            File(sitePackages, needle),
-            File(sitePackages, "$needle.py"),
-            File(sitePackages, "$needle/__init__.py")
-        )
-        return candidates.any { it.exists() }
-    }
-
     /**
      * Live import probe. The cheapest way to confirm a wheel is actually
      * usable from inside Python (catches ABI mismatches, broken wheel
@@ -455,7 +439,7 @@ class TerminalPackageManager(
         appendLine("  pyc files compiled=${pycacheDir.walkTopDown().count { it.isFile && it.name.endsWith(".pyc") }}")
     }
 
-    fun listInstalledPackages(): List<String> = listInstalledPackages(pythonSitePackages)
+    fun listInstalledPackages(): List<String> = Companion.listInstalledPackages(pythonSitePackages)
 
     /**
      * Pure helper used by both the runtime and the unit test.
@@ -463,13 +447,41 @@ class TerminalPackageManager(
      * sorted, with leading underscores filtered out so the agent
      * does not see `_distutils_hack`-style helpers.
      */
-    fun listInstalledPackages(sitePackages: File): List<String> {
-        if (!sitePackages.exists()) return emptyList()
-        return sitePackages.listFiles().orEmpty()
-            .filter { it.isFile && it.name.endsWith(".dist-info") }
-            .map { it.name.removeSuffix(".dist-info") }
-            .filter { !it.startsWith("_") }
-            .sorted()
+    companion object {
+        /**
+         * File-system level check; pure function so the unit test can
+         * exercise it against a temporary directory.
+         */
+        fun isPackageInstalled(sitePackages: File, name: String): Boolean {
+            if (!sitePackages.exists()) return false
+            sitePackages.listFiles().orEmpty()
+                .filter { it.name.endsWith(".dist-info") }
+                .forEach { info ->
+                    if (PythonPackageIndex.matchesDistInfo(info.name, name)) return true
+                }
+            val needle = PythonPackageIndex.normalize(name)
+            val candidates = listOf(
+                File(sitePackages, needle),
+                File(sitePackages, "$needle.py"),
+                File(sitePackages, "$needle/__init__.py")
+            )
+            return candidates.any { it.exists() }
+        }
+
+        /**
+         * Pure helper used by both the runtime and the unit test.
+         * Returns the distribution name (the part before `.dist-info`),
+         * sorted, with leading underscores filtered out so the agent
+         * does not see `_distutils_hack`-style helpers.
+         */
+        fun listInstalledPackages(sitePackages: File): List<String> {
+            if (!sitePackages.exists()) return emptyList()
+            return sitePackages.listFiles().orEmpty()
+                .filter { it.name.endsWith(".dist-info") }
+                .map { it.name.removeSuffix(".dist-info") }
+                .filter { !it.startsWith("_") }
+                .sorted()
+        }
     }
 }
 
@@ -488,8 +500,12 @@ object PythonPackageIndex {
      * Python build scripts so the two sides agree.
      */
     fun normalize(name: String): String {
-        return name.trim().lowercase(Locale.US)
+        val normalized = name.trim().lowercase(Locale.US)
             .replace('-', '_').replace('.', '_')
+        return when (normalized) {
+            "pil", "pil_low" -> "pillow"
+            else -> normalized
+        }
     }
 
     /**
@@ -506,8 +522,13 @@ object PythonPackageIndex {
      */
     fun matchesDistInfo(distInfoDirName: String, query: String): Boolean {
         val distBase = distInfoDirName.removeSuffix(".dist-info")
-        val normDist = normalize(distBase)
+        val normDist = normalize(distributionNameFromDistInfoBase(distBase))
         val normQuery = normalize(query)
-        return normDist == normQuery || normDist.contains("-$normQuery")
+        return normDist == normQuery
+    }
+
+    private fun distributionNameFromDistInfoBase(distBase: String): String {
+        val versionStart = Regex("""-\d""").find(distBase)?.range?.first
+        return if (versionStart == null) distBase else distBase.take(versionStart)
     }
 }

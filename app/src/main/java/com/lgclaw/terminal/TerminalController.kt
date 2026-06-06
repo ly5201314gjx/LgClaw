@@ -1,4 +1,4 @@
-﻿package com.lgclaw.terminal
+package com.lgclaw.terminal
 
 import android.content.Context
 import android.provider.Settings
@@ -89,6 +89,7 @@ object TerminalController {
                     shellPath = status.shellPath,
                     installedExecutables = status.installedExecutables,
                     missingExecutables = status.missingExecutables,
+                    missingLibraries = status.missingLibraries,
                     lastError = status.lastError
                 )
             }
@@ -111,6 +112,7 @@ object TerminalController {
                     shellPath = "",
                     installedExecutables = emptySet(),
                     missingExecutables = fallback.missingExecutables,
+                    missingLibraries = fallback.missingLibraries,
                     lastError = fallback.lastError
                 )
             }
@@ -275,10 +277,28 @@ object TerminalController {
                     shellPath = layoutStatus.shellPath,
                     installedExecutables = layoutStatus.installedExecutables,
                     missingExecutables = layoutStatus.missingExecutables,
+                    missingLibraries = layoutStatus.missingLibraries,
                     installing = false,
                     installProgress = 0f,
                     installMessage = ""
                 )
+            }
+            if (!layoutStatus.ready && layoutStatus.lastError.isNotBlank()) {
+                val result = TerminalExecutionResult(
+                    sessionId = sid,
+                    jobId = jobId,
+                    command = request.command,
+                    exitCode = -1,
+                    output = layoutStatus.lastError,
+                    startedAt = startedAt,
+                    finishedAt = System.currentTimeMillis(),
+                    workingDirectory = manager.workspaceDir(sid).absolutePath,
+                    usedToolchain = false,
+                    error = layoutStatus.lastError
+                )
+                appendStatusLine(sid, layoutStatus.lastError)
+                appendResult(result)
+                return result
             }
             val workspace = request.cwd?.trim()?.takeIf { it.isNotBlank() }?.let(::File)
                 ?: manager.workspaceDir(sid)

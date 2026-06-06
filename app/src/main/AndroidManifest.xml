@@ -44,6 +44,13 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.LGClaw"
         android:usesCleartextTraffic="true">
+        <meta-data
+            android:name="preloaded_fonts"
+            android:resource="@array/preloaded_fonts" />
+
+        <meta-data
+            android:name="preloaded_fonts_uri"
+            android:resource="@array/preloaded_fonts_uri" />
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"

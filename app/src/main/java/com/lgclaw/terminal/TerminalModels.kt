@@ -40,7 +40,8 @@ data class TerminalToolchainStatus(
     val installedExecutables: Set<String>,
     val missingExecutables: Set<String>,
     val toolchainRoot: String,
-    val lastError: String = ""
+    val lastError: String = "",
+    val missingLibraries: Set<String> = emptySet()
 )
 
 data class TerminalRuntimeState(
@@ -54,6 +55,7 @@ data class TerminalRuntimeState(
     val shellPath: String = "",
     val installedExecutables: Set<String> = emptySet(),
     val missingExecutables: Set<String> = emptySet(),
+    val missingLibraries: Set<String> = emptySet(),
     val workspaces: List<TerminalWorkspaceInfo> = emptyList(),
     val activeSessionId: String = "",
     val activeCommand: String = "",
