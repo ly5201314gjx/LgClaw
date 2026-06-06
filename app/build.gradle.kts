@@ -23,8 +23,8 @@ android {
         // storage. Android blocks that for targetSdk >= 29, so we keep the
         // target at 28 like terminal-first apps do.
         targetSdk = 28
-        versionCode = 10
-        versionName = "0.1.10"
+        versionCode = 16
+        versionName = "0.1.16"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -145,6 +145,7 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.ui:ui-text-google-fonts:1.7.5")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("com.google.android.material:material:1.12.0")
     debugImplementation("androidx.compose.ui:ui-tooling")

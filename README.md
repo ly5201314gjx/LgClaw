@@ -10,7 +10,7 @@
 [![Android](https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](#)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Compose-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](#)
 [![Local First](https://img.shields.io/badge/Local--First-Agent%20Runtime-0A84FF?style=for-the-badge)](#)
-[![Download APK](https://img.shields.io/badge/Download-v0.1.9%20APK-f39c12?style=for-the-badge&logo=android&logoColor=white)](https://github.com/ly5201314gjx/LgClaw/releases/latest/download/LGClaw-Pro-debug.apk)
+[![Download APK](https://img.shields.io/badge/Download-v0.1.16%20APK-f39c12?style=for-the-badge&logo=android&logoColor=white)](https://github.com/ly5201314gjx/LgClaw/releases/latest/download/LGClaw-Pro-debug.apk)
 
 </div>
 
@@ -24,12 +24,18 @@
 
 ## Latest Update
 
-**v0.1.9** makes the embedded terminal far more dependable:
+**v0.1.16** rebuilds the chat home with a brutalist visual language:
 
-- The APK now ships the full arm64 terminal assets and uses a terminal-compatible Android target so Node.js/npm, Python/pip/uv, Git, SSH, and shell tools can run from LGClaw's private runtime.
-- Terminal launch failures are caught and shown as Chinese status output instead of crashing the chat page.
-- The mini terminal monitor close button now hides the floating view without killing the active task.
-- The latest install package is attached to [GitHub Releases](https://github.com/ly5201314gjx/LgClaw/releases/latest).
+- **Brutalist home page**: 0 radius, 2px black borders, Space Grotesk display + monospace labels, paper canvas. The top bar (agent / model / plan / K value) and the four-cell status grid (表情 / 模型 / 终端 / 消息) all speak the same brutalist dialect.
+- **User / agent message distinction**: user messages sit on the right with a soft gray bubble; agent messages anchor on the left with the white paper background. A short-click opens the long-press menu; long-press shows a floating 复制 / 重发 / 多选 popup with an Undo banner after delete.
+- **Terminal launcher sheet**: the USR cell opens a single sheet with a search box, quick action chips (ls / pwd / whoami / ps / df / free), filtered command history, and a mini terminal output panel.
+- **History search sheet**: the MSG cell opens a brutalist search sheet with role filter chips (全部 / 用户 / 助手 / 工具) and date-grouped messages scoped to the current session.
+- **Plan mode flow**: pick Quick / Standard / Deep / Codex, send a message, watch a "正在生成计划..." bubble animate while the plan is created, then choose Execute / Suggest / Cancel. Tapping any option dismisses the row immediately to prevent accidental double-clicks. Execute appends a "开始计划执行" acknowledgement before kicking off the actual run.
+- **Tool call + trace flow blocks**: terminal_exec / terminal_python_install / file.write and similar tool messages appear as compact left-aligned chips next to the agent text. Default folded with a triangle indicator; long-press opens a detail sheet that shows the full call output plus the related note/think text. The "思考 (N 多少消息)" trace header is also long-pressable into a separate detail sheet.
+- **Attachment preview in composer**: images render as 64dp thumbnails in the send box; documents show as compact name chips. Tapping the thumbnail opens the preview sheet.
+- **Composable memory + undo for deletes**: snapshots are captured before delete so the Undo banner can restore the messages you just removed.
+
+The latest install package is attached to [GitHub Releases](https://github.com/ly5201314gjx/LgClaw/releases/latest).
 
 See the full [CHANGELOG](./CHANGELOG.md).
 

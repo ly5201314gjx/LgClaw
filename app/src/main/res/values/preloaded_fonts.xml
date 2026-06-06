@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <array name="preloaded_fonts" translatable="false">
+        <item>@font/space_grotesk_bold</item>
+        <item>@font/space_grotesk_semibold</item>
+        <item>@font/inter_regular</item>
+        <item>@font/inter_medium</item>
+        <item>@font/inter_bold</item>
+        <item>@font/jetbrains_mono_medium</item>
+        <item>@font/jetbrains_mono_bold</item>
+    </array>
+    <array name="preloaded_fonts_uri" translatable="false">
+        <item>https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&amp;family=Inter:wght@400;500;700&amp;family=JetBrains+Mono:wght@500;700</item>
+    </array>
+</resources>
